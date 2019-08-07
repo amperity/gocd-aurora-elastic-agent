@@ -1,0 +1,12 @@
+version: "3"
+services:
+  server:
+    image: gocd/gocd-server:v19.7.0
+    restart: on-failure
+    #hostname: gocd-server.local.amperity.systems
+    volumes:
+      - ./data:/godata:rw
+      - ./home:/home/go:rw
+    ports:
+      - "8153:8153"
+      - "8154:8154"
