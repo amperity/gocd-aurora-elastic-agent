@@ -101,11 +101,37 @@
 
 
 
-;; ## Plugin Status
+;; ## Status Reports
 
-;; TODO: cd.go.elastic-agent.agent-status-report
-;; TODO: cd.go.elastic-agent.cluster-status-report
-;; TODO: cd.go.elastic-agent.plugin-status-report
+;; If plugin supports status report, this message must be implemented to report
+;; the status of a particular elastic agent brought up by the plugin to run a
+;; job. The purpose of this call is to provide specific information about the
+;; current state of the elastic agent.
+(defmethod handle-request "cd.go.elastic-agent.agent-status-report"
+  [_ data]
+  (let [agent-id (get data "elastic_agent_id")
+        cluster-profile (get data "cluster_profile_properties")
+        job-info (get data "job_identifier")]
+    ;; TODO: implement agent status report
+    {"view" "<span><strong>NYI:<strong> agent status</span>"}))
+
+
+;; If plugin supports cluster status report, this message must be implemented
+;; to provide the overall status of the cluster.
+(defmethod handle-request "cd.go.elastic-agent.cluster-status-report"
+  [_ data]
+  (let [cluster-profile (get data "cluster_profile_properties")]
+    ;; TODO: implement cluster status report
+    {"view" "<span><strong>NYI:<strong> cluster status</span>"}))
+
+
+;; If plugin supports the plugin status report, this message must be
+;; implemented to provide the overall status of the environment.
+(defmethod handle-request "cd.go.elastic-agent.plugin-status-report"
+  [_ data]
+  (let [cluster-profiles (get data "all_cluster_profile_properties")]
+    ;; TODO: implement plugin status report
+    {"view" "<span><strong>NYI:<strong> plugin status</span>"}))
 
 
 
@@ -137,7 +163,7 @@
 ;; the cluster profile.
 (defmethod handle-request "cd.go.elastic-agent.validate-cluster-profile"
   [_ settings]
-  ;; TODO: implement validation errors
+  ;; TODO: validate cluster profile settings
   ;; {"key": "foo", "message": "..."}
   [])
 
@@ -167,7 +193,7 @@
 ;; elastic agent profile.
 (defmethod handle-request "cd.go.elastic-agent.validate-elastic-agent-profile"
   [_ settings]
-  ;; TODO: implement validation errors
+  ;; TODO: validate agent profile settings
   ;; {"key": "foo", "message": "..."}
   [])
 
@@ -178,34 +204,42 @@
 ;; Each elastic agent plugin will receive a periodic signal at regular
 ;; intervals for it to perform any cleanup operations. Plugins may use this
 ;; message to disable and/or terminate agents at their discretion.
-;; TODO: "cd.go.elastic-agent.server-ping"
+;; NOTE: calls occur on multiple threads
+(defmethod handle-request "cd.go.elastic-agent.server-ping"
+  [_ data]
+  (let [cluster-profiles (get data "all_cluster_profile_properties")]
+    ;; TODO: terminate idle agents
+    true))
 
 
 ;; This message is a request to the plugin to create an agent for a job
 ;; that has been scheduled.
-;;
-;; {
-;;   "auto_register_key": "1e0e05fc-eb45-11e5-bc83-93882adfccf6",
-;;   "elastic_agent_profile_properties": {
-;;     "Image": "gocd/gocd-agent-alpine-3.5:v18.1.0",
-;;     "MaxMemory": "https://docker-uri/"
-;;   },
-;;   "cluster_profile_properties": {
-;;     "Image": "DockerURI",
-;;     "MaxMemory": "500Mb"
-;;   },
-;;   "environment": "prod",
-;;   "job_identifier": {
-;;     "job_id": 100,
-;;     "job_name": "test-job",
-;;     "pipeline_counter": 1,
-;;     "pipeline_label": "build",
-;;     "pipeline_name": "build",
-;;     "stage_counter": "1",
-;;     "stage_name": "test-stage"
-;;   }
-;; }
-;; TODO: "cd.go.elastic-agent.create-agent"
+;; NOTE: calls occur on multiple threads
+(defmethod handle-request "cd.go.elastic-agent.create-agent"
+  [_ data]
+  ;; {
+  ;;   "auto_register_key": "1e0e05fc-eb45-11e5-bc83-93882adfccf6",
+  ;;   "elastic_agent_profile_properties": {
+  ;;     "Image": "gocd/gocd-agent-alpine-3.5:v18.1.0",
+  ;;     "MaxMemory": "https://docker-uri/"
+  ;;   },
+  ;;   "cluster_profile_properties": {
+  ;;     "Image": "DockerURI",
+  ;;     "MaxMemory": "500Mb"
+  ;;   },
+  ;;   "environment": "prod",
+  ;;   "job_identifier": {
+  ;;     "job_id": 100,
+  ;;     "job_name": "test-job",
+  ;;     "pipeline_counter": 1,
+  ;;     "pipeline_label": "build",
+  ;;     "pipeline_name": "build",
+  ;;     "stage_counter": "1",
+  ;;     "stage_name": "test-stage"
+  ;;   }
+  ;; }
+  ;; TODO: implement create-agent logic
+  (DefaultGoPluginApiResponse/error "NYI"))
 
 
 ;; When there are multiple agents available to run a job, the server will
@@ -214,7 +248,36 @@
 ;; and the environment that the agent belongs to. This allows plugin to
 ;; decide if proposed agent is suitable to schedule a job on it. For
 ;; example, plugin can check if flavor or region of VM is suitable.
-;; TODO: "cd.go.elastic-agent.should-assign-work"
+(defmethod handle-request "cd.go.elastic-agent.should-assign-work"
+  [_ data]
+  ;; TODO: implement should-assign-work logic
+  (DefaultGoPluginApiResponse/error "NYI"))
 
 
-;; TODO: "cd.go.elastic-agent.job-completion"
+;; The intent on this message is to notify the plugin on completion of the job.
+;; The plugin may choose to terminate the elastic agent or keep it running in
+;; case the same agent can be used for another job configuration.
+(defmethod handle-request "cd.go.elastic-agent.job-completion"
+  [_ data]
+  ;; {
+  ;;   "elastic_agent_id": "GoCD18efbeef995e40f688cd92dc22a4d332",
+  ;;   "elastic_agent_profile_properties": {
+  ;;     "Image": "gocd/gocd-agent-alpine-3.5:v18.1.0",
+  ;;     "MaxMemory": "https://docker-uri/"
+  ;;   },
+  ;;   "cluster_profile_properties": {
+  ;;     "Image": "DockerURI",
+  ;;     "MaxMemory": "500Mb"
+  ;;   },
+  ;;   "job_identifier": {
+  ;;     "job_id": 100,
+  ;;     "job_name": "test-job",
+  ;;     "pipeline_counter": 1,
+  ;;     "pipeline_label": "build",
+  ;;     "pipeline_name": "build",
+  ;;     "stage_counter": "1",
+  ;;     "stage_name": "test-stage"
+  ;;   }
+  ;; }
+  ;; TODO: implement job-completion logic
+  (DefaultGoPluginApiResponse/error "NYI"))
