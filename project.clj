@@ -11,11 +11,17 @@
   [[org.clojure/clojure "1.10.1"]
 
    ;; GoCD plugin lib.
-   [cd.go.plugin/go-plugin-api "18.2.0" :scope "provided"]
+   [cd.go.plugin/go-plugin-api "19.7.0" :scope "provided"]
 
    ;; Aurora API and related libs, since the project below doesn't actually
    ;; declare any transitive dependencies.
    [amperity/aurora-api "0.21.0"]
-   [com.google.code.gson/gson "2.8.5"]
-   [com.google.guava/guava "23.0"]
-   [org.apache.thrift/libthrift "0.9.1"] ])
+   [com.google.code.gson/gson "2.8.5" :scope "provided"]
+   [com.google.guava/guava "23.0" :scope "provided"]
+   [org.apache.thrift/libthrift "0.9.1"]]
+
+  :profiles
+  {:uberjar
+   {:target-path "target/uberjar"
+    ;:uberjar-name "gocd-aurora-elastic-agent.jar"
+    :aot :all}})
