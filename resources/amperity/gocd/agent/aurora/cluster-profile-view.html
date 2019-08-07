@@ -1,0 +1,25 @@
+<!-- Ensure that the keys here are also declared in the get-cluster-profile-metadata response. -->
+
+<div class="form_item_block">
+  <label>Aurora URL:<span class='asterix'>*</span></label>
+  <input type="text" ng-model="aurora_url" ng-required="true"/>
+  <span class="form_error" ng-show="GOINPUTNAME[aurora_url].$error.server">{{GOINPUTNAME[aurora_url].$error.server}}</span>
+</div>
+
+<div class="form_item_block">
+  <label>Aurora Cluster:<span class='asterix'>*</span></label>
+  <input type="text" ng-model="aurora_cluster" ng-required="true"/>
+  <span class="form_error" ng-show="GOINPUTNAME[aurora_cluster].$error.server">{{GOINPUTNAME[aurora_cluster].$error.server}}</span>
+</div>
+
+<div class="form_item_block">
+  <label>Aurora Role:<span class='asterix'>*</span></label>
+  <input type="text" ng-model="aurora_role" ng-required="true"/>
+  <span class="form_error" ng-show="GOINPUTNAME[aurora_role].$error.server">{{GOINPUTNAME[aurora_role].$error.server}}</span>
+</div>
+
+<div class="form_item_block">
+  <label>Aurora Environment:<span class='asterix'>*</span></label>
+  <input type="text" ng-model="aurora_env" ng-required="true"/>
+  <span class="form_error" ng-show="GOINPUTNAME[aurora_env].$error.server">{{GOINPUTNAME[aurora_env].$error.server}}</span>
+</div>
