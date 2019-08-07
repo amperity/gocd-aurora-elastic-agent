@@ -1,0 +1,13 @@
+<!-- Ensure that the keys here are also declared in the get-elastic-agent-profile-metadata response. -->
+
+<div class="form_item_block">
+  <label>CPU:<span class='asterix'>*</span></label>
+  <input type="text" ng-model="agent_cpu" ng-required="true"/>
+  <span class="form_error" ng-show="GOINPUTNAME[agent_cpu].$error.server">{{GOINPUTNAME[agent_cpu].$error.server}}</span>
+</div>
+
+<div class="form_item_block">
+  <label>Memory (MB):<span class='asterix'>*</span></label>
+  <input type="text" ng-model="agent_ram" ng-required="true"/>
+  <span class="form_error" ng-show="GOINPUTNAME[agent_ram].$error.server">{{GOINPUTNAME[agent_ram].$error.server}}</span>
+</div>

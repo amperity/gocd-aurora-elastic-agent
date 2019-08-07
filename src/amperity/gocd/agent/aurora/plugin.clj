@@ -145,9 +145,31 @@
 
 ;; ## Elastic Agent Profiles
 
-;; - cd.go.elastic-agent.get-elastic-agent-profile-view
-;; - cd.go.elastic-agent.get-elastic-agent-profile-metadata
-;; - cd.go.elastic-agent.validate-elastic-agent-profile
+;; This is a message that the plugin should implement, to allow users to
+;; configure elastic agent profiles from the Elastic Profiles View in GoCD.
+(defmethod handle-request "cd.go.elastic-agent.get-elastic-agent-profile-view"
+  [_ _]
+  (let [view-html (slurp (io/resource "amperity/gocd/agent/aurora/elastic-agent-profile-view.html"))]
+    {"template" view-html}))
+
+
+;; This is a message that the plugin should implement, to allow users to
+;; configure elastic agent profiles from the Elastic Profiles View in GoCD.
+(defmethod handle-request "cd.go.elastic-agent.get-elastic-agent-profile-metadata"
+  [_ _]
+  [{"key" "agent_cpu"
+    "metadata" {"required" true, "secure" false}}
+   {"key" "agent_ram"
+    "metadata" {"required" true, "secure" false}}])
+
+
+;; This call is expected to validate the user inputs that form a part of the
+;; elastic agent profile.
+(defmethod handle-request "cd.go.elastic-agent.validate-elastic-agent-profile"
+  [_ settings]
+  ;; TODO: implement validation errors
+  ;; {"key": "foo", "message": "..."}
+  [])
 
 
 
