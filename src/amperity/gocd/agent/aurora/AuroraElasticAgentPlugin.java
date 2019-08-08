@@ -18,7 +18,7 @@ import java.util.Arrays;
 @Extension
 public class AuroraElasticAgentPlugin implements GoPlugin {
 
-    public static final Logger LOG = Logger.getLoggerFor(AuroraElasticAgentPlugin.class);
+    public static final Logger LOGGER = Logger.getLoggerFor(AuroraElasticAgentPlugin.class);
 
     // Fields
     private GoApplicationAccessor accessor;
@@ -41,7 +41,7 @@ public class AuroraElasticAgentPlugin implements GoPlugin {
      */
     @Override
     public void initializeGoApplicationAccessor(GoApplicationAccessor accessor) {
-        LOG.info("Initializing plugin");
+        LOGGER.info("Initializing plugin");
         this.accessor = accessor;
 
         IFn require = Clojure.var("clojure.core", "require");
@@ -50,7 +50,7 @@ public class AuroraElasticAgentPlugin implements GoPlugin {
             require.invoke(Clojure.read("amperity.gocd.agent.aurora.plugin"));
             this.handler = Clojure.var("amperity.gocd.agent.aurora.plugin", "handler");
         } catch (Exception ex) {
-            LOG.error("Failed to load plugin API handler", ex);
+            LOGGER.error("Failed to load plugin API handler", ex);
             throw ex;
         }
 
@@ -58,7 +58,7 @@ public class AuroraElasticAgentPlugin implements GoPlugin {
             IFn atom = Clojure.var("clojure.core", "atom");
             this.state = (Atom)atom.invoke(Clojure.read("{:clients {}, :clusters {}, :agents {}}"));
         } catch (Exception ex) {
-            LOG.error("Failed to create plugin state atom", ex);
+            LOGGER.error("Failed to create plugin state atom", ex);
             throw ex;
         }
     }
