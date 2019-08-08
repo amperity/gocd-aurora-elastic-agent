@@ -187,6 +187,13 @@
 
 ;; ## Agent Lifecycle
 
+;; Will need an Aurora client per stack; lock on client access.
+;; Need to track what agents are alive and which are currently occupied.
+;; Need a matching algorithm to compare an agent to a profile requirement.
+;; Need the interop to create a new agent service; probably want to run under
+;; `{{cluster}}/{{role}}/prod/{{type}}-agent-{{id}}` so an example `aws-dev/www-data/prod/test-agent-0`
+
+
 ;; Each elastic agent plugin will receive a periodic signal at regular
 ;; intervals for it to perform any cleanup operations. Plugins may use this
 ;; message to disable and/or terminate agents at their discretion.
@@ -195,6 +202,12 @@
   [_ data]
   (let [cluster-profiles (get data "all_cluster_profile_properties")]
     ;; TODO: terminate idle agents
+    ;; - Take list of known agents
+    ;; - Maybe call Aurora to check on their statuses and remove crashed ones?
+    ;; - Maybe call GoCD accessor to refresh agent status?
+    ;; - Remove any agents known to be busy
+    ;; - Filter to agents whose last job was more than five minutes ago
+    ;; - Terminate those agents, update internal state
     true))
 
 
@@ -225,6 +238,12 @@
   ;;   }
   ;; }
   ;; TODO: implement create-agent logic
+  ;; - Take list of known agents
+  ;; - Maybe call Aurora to check on their statuses and remove crashed ones?
+  ;; - Maybe call GoCD accessor to refresh agent status?
+  ;; - Filter to agents who could be assigned the job (matching environment and compatible agent profile)
+  ;; - If no available agents, check overall capacity
+  ;; - If capacity, launch an agent service in Aurora
   (DefaultGoPluginApiResponse/error "NYI"))
 
 
@@ -236,7 +255,35 @@
 ;; example, plugin can check if flavor or region of VM is suitable.
 (defmethod handle-request "cd.go.elastic-agent.should-assign-work"
   [_ data]
+  ;; {
+  ;;   "agent": {
+  ;;     "agent_id": "i-283432d4",
+  ;;     "agent_state": "Idle",
+  ;;     "build_state": "Idle",
+  ;;     "config_state": "Enabled"
+  ;;   },
+  ;;   "environment": "staging",
+  ;;   "job_identifier": {
+  ;;     "job_id": 100,
+  ;;     "job_name": "run-upgrade",
+  ;;     "pipeline_counter": 1,
+  ;;     "pipeline_label": "build",
+  ;;     "pipeline_name": "build",
+  ;;     "stage_counter": "1",
+  ;;     "stage_name": "test-stage"
+  ;;   },
+  ;;   "elastic_agent_profile_properties": {
+  ;;       "Image": "gocd/gocd-agent-alpine-3.5:v18.1.0",
+  ;;       "MaxMemory": "https://docker-uri/"
+  ;;   },
+  ;;   "cluster_profile_properties": {
+  ;;     "Image": "DockerURI",
+  ;;     "MaxMemory": "500Mb"
+  ;;   }
+  ;; }
   ;; TODO: implement should-assign-work logic
+  ;; - Is the agent in the right environment? (maybe automatic)
+  ;; - Does the agent have compatible profile settings?
   (DefaultGoPluginApiResponse/error "NYI"))
 
 
@@ -266,4 +313,6 @@
   ;;   }
   ;; }
   ;; TODO: implement job-completion logic
+  ;; - Mark the agent as idle in our internal state? May not matter if we're
+  ;;   always refreshing.
   (DefaultGoPluginApiResponse/error "NYI"))
