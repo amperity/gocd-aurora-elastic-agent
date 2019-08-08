@@ -6,7 +6,7 @@ plugin_name := gocd-aurora-elastic-agent-$(version)-plugin.jar
 
 uberjar_path := target/uberjar/gocd-aurora-elastic-agent-$(version)-standalone.jar
 plugin_path := target/plugin/$(plugin_name)
-install_path := gocd/data/plugins/external/$(plugin_name)
+install_path := gocd/server/plugins/external/$(plugin_name)
 
 all: plugin
 
