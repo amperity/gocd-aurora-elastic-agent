@@ -22,6 +22,11 @@
     [[cd.go.plugin/go-plugin-api "19.7.0"]
      [com.google.guava/guava "23.0"]]}
 
+   :repl
+   {:source-paths ["dev"]
+    :dependencies
+    [[org.clojure/tools.namespace "0.2.11"]]}
+
    :uberjar
    {:target-path "target/uberjar"
     :aot :all}})
