@@ -24,22 +24,22 @@
   empty success response, a data structure to coerce into a successful JSON
   response, or a custom `GoPluginApiResponse`."
   (fn dispatch
-    [req-name data]
+    [state req-name data]
     req-name))
 
 
 (defmethod handle-request :default
-  [req-name data]
+  [_ req-name _]
   (throw (UnhandledRequestTypeException. req-name)))
 
 
 (defn handler
   "Request handling entry-point."
-  [^GoPluginApiRequest request]
+  [state ^GoPluginApiRequest request]
   (let [req-name (.requestName request)
         req-data (when-not (str/blank? (.requestBody request))
                    (u/json-decode-map (.requestBody request)))
-        result (handle-request req-name req-data)]
+        result (handle-request state req-name req-data)]
     (cond
       (true? result)
       (DefaultGoPluginApiResponse/success "")
@@ -57,7 +57,7 @@
 ;; This call is expected to return the icon for the plugin, so as to make
 ;; it easy for users to identify the plugin.
 (defmethod handle-request "cd.go.elastic-agent.get-icon"
-  [_ _]
+  [_ _ _]
   (let [icon-svg (slurp (io/resource "amperity/gocd/agent/aurora/logo.svg"))]
     {"content_type" "image/svg+xml"
      "data" (u/b64-encode-str icon-svg)}))
@@ -67,7 +67,7 @@
 ;; Based on these capabilities GoCD would enable or disable the plugin
 ;; features for a user.
 (defmethod handle-request "cd.go.elastic-agent.get-capabilities"
-  [_ _]
+  [_ _ _]
   {"supports_plugin_status_report" false
    "supports_cluster_status_report" false
    "supports_agent_status_report" false})
@@ -78,7 +78,7 @@
 ;; the migration on the existing config in order to support the newer
 ;; version of the plugin.
 (defmethod handle-request "cd.go.elastic-agent.migrate-config"
-  [_ data]
+  [_ _ data]
   (let [cluster-profiles (get data "cluster_profiles")
         agent-profiles (get data "elastic_agent_profiles")]
     ;; TODO: validate and fixup any existing config
@@ -94,7 +94,7 @@
 ;; job. The purpose of this call is to provide specific information about the
 ;; current state of the elastic agent.
 (defmethod handle-request "cd.go.elastic-agent.agent-status-report"
-  [_ data]
+  [_ _ data]
   (let [agent-id (get data "elastic_agent_id")
         cluster-profile (get data "cluster_profile_properties")
         job-info (get data "job_identifier")]
@@ -105,7 +105,7 @@
 ;; If plugin supports cluster status report, this message must be implemented
 ;; to provide the overall status of the cluster.
 (defmethod handle-request "cd.go.elastic-agent.cluster-status-report"
-  [_ data]
+  [_ _ data]
   (let [cluster-profile (get data "cluster_profile_properties")]
     ;; TODO: implement cluster status report
     {"view" "<span><strong>NYI:<strong> cluster status</span>"}))
@@ -114,7 +114,7 @@
 ;; If plugin supports the plugin status report, this message must be
 ;; implemented to provide the overall status of the environment.
 (defmethod handle-request "cd.go.elastic-agent.plugin-status-report"
-  [_ data]
+  [_ _ data]
   (let [cluster-profiles (get data "all_cluster_profile_properties")]
     ;; TODO: implement plugin status report
     {"view" "<span><strong>NYI:<strong> plugin status</span>"}))
@@ -126,7 +126,7 @@
 ;; This is a message that the plugin should implement, to allow users to
 ;; configure cluster profiles from the Elastic Profiles View in GoCD.
 (defmethod handle-request "cd.go.elastic-agent.get-cluster-profile-view"
-  [_ _]
+  [_ _ _]
   (let [view-html (slurp (io/resource "amperity/gocd/agent/aurora/cluster-profile-view.html"))]
     {"template" view-html}))
 
@@ -134,7 +134,7 @@
 ;; This is a message that the plugin should implement, to allow users to
 ;; configure cluster profiles from the Elastic Profiles View in GoCD.
 (defmethod handle-request "cd.go.elastic-agent.get-cluster-profile-metadata"
-  [_ _]
+  [_ _ _]
   [{"key" "aurora_url"
     "metadata" {"required" true, "secure" false}}
    {"key" "aurora_cluster"
@@ -148,7 +148,7 @@
 ;; This call is expected to validate the user inputs that form a part of
 ;; the cluster profile.
 (defmethod handle-request "cd.go.elastic-agent.validate-cluster-profile"
-  [_ settings]
+  [_ _ settings]
   ;; TODO: validate cluster profile settings
   ;; {"key": "foo", "message": "..."}
   [])
@@ -160,7 +160,7 @@
 ;; This is a message that the plugin should implement, to allow users to
 ;; configure elastic agent profiles from the Elastic Profiles View in GoCD.
 (defmethod handle-request "cd.go.elastic-agent.get-elastic-agent-profile-view"
-  [_ _]
+  [_ _ _]
   (let [view-html (slurp (io/resource "amperity/gocd/agent/aurora/elastic-agent-profile-view.html"))]
     {"template" view-html}))
 
@@ -168,7 +168,7 @@
 ;; This is a message that the plugin should implement, to allow users to
 ;; configure elastic agent profiles from the Elastic Profiles View in GoCD.
 (defmethod handle-request "cd.go.elastic-agent.get-elastic-agent-profile-metadata"
-  [_ _]
+  [_ _ _]
   [{"key" "agent_cpu"
     "metadata" {"required" true, "secure" false}}
    {"key" "agent_ram"
@@ -178,7 +178,7 @@
 ;; This call is expected to validate the user inputs that form a part of the
 ;; elastic agent profile.
 (defmethod handle-request "cd.go.elastic-agent.validate-elastic-agent-profile"
-  [_ settings]
+  [_ _ settings]
   ;; TODO: validate agent profile settings
   ;; {"key": "foo", "message": "..."}
   [])
@@ -199,7 +199,7 @@
 ;; message to disable and/or terminate agents at their discretion.
 ;; NOTE: calls occur on multiple threads
 (defmethod handle-request "cd.go.elastic-agent.server-ping"
-  [_ data]
+  [state _ data]
   (let [cluster-profiles (get data "all_cluster_profile_properties")]
     ;; TODO: terminate idle agents
     ;; - Take list of known agents
@@ -215,7 +215,7 @@
 ;; that has been scheduled.
 ;; NOTE: calls occur on multiple threads
 (defmethod handle-request "cd.go.elastic-agent.create-agent"
-  [_ data]
+  [state _ data]
   ;; {
   ;;   "auto_register_key": "1e0e05fc-eb45-11e5-bc83-93882adfccf6",
   ;;   "elastic_agent_profile_properties": {
@@ -244,7 +244,7 @@
   ;; - Filter to agents who could be assigned the job (matching environment and compatible agent profile)
   ;; - If no available agents, check overall capacity
   ;; - If capacity, launch an agent service in Aurora
-  (DefaultGoPluginApiResponse/error "NYI"))
+  true)
 
 
 ;; When there are multiple agents available to run a job, the server will
@@ -254,7 +254,7 @@
 ;; decide if proposed agent is suitable to schedule a job on it. For
 ;; example, plugin can check if flavor or region of VM is suitable.
 (defmethod handle-request "cd.go.elastic-agent.should-assign-work"
-  [_ data]
+  [state _ data]
   ;; {
   ;;   "agent": {
   ;;     "agent_id": "i-283432d4",
@@ -291,7 +291,7 @@
 ;; The plugin may choose to terminate the elastic agent or keep it running in
 ;; case the same agent can be used for another job configuration.
 (defmethod handle-request "cd.go.elastic-agent.job-completion"
-  [_ data]
+  [state _ data]
   ;; {
   ;;   "elastic_agent_id": "GoCD18efbeef995e40f688cd92dc22a4d332",
   ;;   "elastic_agent_profile_properties": {

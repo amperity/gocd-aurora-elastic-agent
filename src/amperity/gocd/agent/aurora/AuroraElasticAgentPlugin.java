@@ -1,6 +1,7 @@
 package amperity.gocd.agent.aurora;
 
 import clojure.java.api.Clojure;
+import clojure.lang.Atom;
 import clojure.lang.IFn;
 import com.thoughtworks.go.plugin.api.GoApplicationAccessor;
 import com.thoughtworks.go.plugin.api.GoPluginIdentifier;
@@ -20,8 +21,9 @@ public class AuroraElasticAgentPlugin implements GoPlugin {
     public static final Logger LOG = Logger.getLoggerFor(AuroraElasticAgentPlugin.class);
 
     // Fields
-    private IFn handler;
     private GoApplicationAccessor accessor;
+    private IFn handler;
+    private Atom state;
 
 
     /**
@@ -40,15 +42,25 @@ public class AuroraElasticAgentPlugin implements GoPlugin {
     @Override
     public void initializeGoApplicationAccessor(GoApplicationAccessor accessor) {
         LOG.info("Initializing plugin");
+        this.accessor = accessor;
+
+        IFn require = Clojure.var("clojure.core", "require");
+
         try {
-            IFn require = Clojure.var("clojure.core", "require");
             require.invoke(Clojure.read("amperity.gocd.agent.aurora.plugin"));
             this.handler = Clojure.var("amperity.gocd.agent.aurora.plugin", "handler");
         } catch (Exception ex) {
             LOG.error("Failed to load plugin API handler", ex);
             throw ex;
         }
-        this.accessor = accessor;
+
+        try {
+            IFn atom = Clojure.var("clojure.core", "atom");
+            this.state = (Atom)atom.invoke(Clojure.read("{:clients {}, :clusters {}, :agents {}}"));
+        } catch (Exception ex) {
+            LOG.error("Failed to create plugin state atom", ex);
+            throw ex;
+        }
     }
 
 
@@ -60,7 +72,7 @@ public class AuroraElasticAgentPlugin implements GoPlugin {
      */
     @Override
     public GoPluginApiResponse handle(GoPluginApiRequest request) throws UnhandledRequestTypeException {
-        return (GoPluginApiResponse)this.handler.invoke(request);
+        return (GoPluginApiResponse)this.handler.invoke(state, request);
     }
 
 }
