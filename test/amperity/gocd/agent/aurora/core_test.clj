@@ -1,6 +1,5 @@
 (ns amperity.gocd.agent.aurora.core-test
   (:require
-    [amperity.gocd.agent.aurora.core :as core]
     [clojure.test :refer [deftest testing is]]))
 
 

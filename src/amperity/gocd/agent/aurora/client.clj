@@ -6,6 +6,7 @@
   (:import
     (org.apache.aurora.gen
       AuroraSchedulerManager$Client
+      AuroraSchedulerManager$Client$Factory
       ExecutorConfig
       JobConfiguration
       JobKey
@@ -25,7 +26,7 @@
       THttpClient)))
 
 
-;; TODO: get these from environment
+;; TODO: get these from settings
 (def gocd-download-url "https://download.gocd.org/binaries")
 (def gocd-version "19.7.0")
 (def gocd-build "9567")
@@ -186,44 +187,65 @@
 
 ;; ## Aurora API
 
-#_
-(defn- make-aurora-call
-  ^Response
-  [address call-fn]
-  (with-open [transport (THttpClient. address)]
-    (let [protocol (TJSONProtocol. transport)
-          client (clojure.lang.Reflector/invokeConstructor
-                   AuroraSchedulerManager$Client
-                   (to-array [protocol]))]
-      (call-fn client))))
+(defn get-client
+  "Open a client connected to the given URL. Retrieves a cached client from the
+  state atom or creates a new one as needed."
+  [state url]
+  (if-let [client (get-in @state [:clients url])]
+    client
+    (let [transport (THttpClient. url)
+          protocol (TJSONProtocol. transport)
+          factory (AuroraSchedulerManager$Client$Factory.)
+          candidate (.getClient factory protocol)
+          new-state (swap! state (fn maybe-update
+                                   [state-map]
+                                   (if (get-in state-map [:clients url])
+                                     ;; Already had a client, someone beat us to it.
+                                     state-map
+                                     ;; Inject new client.
+                                     (assoc-in state-map [:clients url] candidate))))
+          client (get-in new-state [:clients url])]
+      (when-not (identical? candidate client)
+        (.close transport))
+      client)))
+
+
+(defn- check-code!
+  "Check that the Aurora client call succeeded."
+  [call-name ^Response response]
+  (let [response-code (.getResponseCode response)]
+    (when-not (= response-code ResponseCode/OK)
+      (throw (ex-info (str call-name " returned unsuccessful response code: "
+                           response-code)
+                      {:code response-code
+                       :errors (vec (.getDetails response))})))))
 
 
 (defn launch-agent!
   "Use the aurora client to launch a new agent job."
   [^AuroraSchedulerManager$Client client
+   server-url ; TODO: can get from sending go.processor.server-info.get to the server
    cluster-profile
    agent-profile
+   agent-name ; TODO: determine free number from active agents or generate hash
    gocd-environment
-   gocd-autoregister-key
+   gocd-register-key
    gocd-job]
   (let [aurora-cluster (:aurora_cluster cluster-profile)
         aurora-role (:aurora_role cluster-profile)
         aurora-env (:aurora_env cluster-profile)
-        agent-tag "test"  ; TODO: parameterize
-        agent-number 0    ; TODO: determine free number from active agents or generate hash
-        agent-name (str agent-tag "-agent-" agent-number)
         agent-id (str aurora-cluster "/" aurora-role "/" aurora-env "/" agent-name)
         resources {:cpu (:agent_cpu agent-profile 1.0)
                    :ram (:agent_ram agent-profile 2048)
                    :disk (:agent_disk agent-profile 2048)}
         task (agent-task
                agent-name
-               {:auto-register-key nil
-                :auto-register-hostname agent-name
-                :auto-register-environment nil
-                :elastic-plugin-id "amperity.gocd.agent.aurora"
+               {:auto-register-hostname agent-name
+                :auto-register-environment gocd-environment
+                :auto-register-key gocd-register-key
+                :elastic-plugin-id u/plugin-id
                 :elastic-agent-id agent-id
-                :server-url nil})
+                :server-url server-url})
         job-config (->job-config
                      aurora-cluster
                      aurora-role
@@ -232,6 +254,7 @@
                      resources
                      task)]
     ;(log/infof "Submitting Aurora job %s/%s/%s/%s" job-id)
-    (let [response (.createJob client job-config)]
-      ;(check-code! "CreateJob" response)
+    (let [response (locking client
+                     (.createJob client job-config))]
+      (check-code! "CreateJob" response)
       agent-id)))
