@@ -1,6 +1,7 @@
 (ns amperity.gocd.agent.aurora.plugin
   "Core plugin implementation."
   (:require
+    [amperity.gocd.agent.aurora.util :as u]
     [clojure.java.io :as io]
     [clojure.string :as str])
   (:import
@@ -13,22 +14,7 @@
       GoPluginApiRequest)
     (com.thoughtworks.go.plugin.api.response
       DefaultGoPluginApiResponse
-      GoPluginApiResponse)
-    java.util.Base64))
-
-
-(let [gson (Gson.)]
-  (defn- json-encode
-    "Encode a value to a JSON string."
-    ^String
-    [value]
-    (.toJson gson value))
-
-  (defn- json-decode
-    "Decode a map from a JSON string."
-    [^String json]
-    (into {} (.fromJson gson json java.util.Map))))
-
+      GoPluginApiResponse)))
 
 
 ;; ## Request Handling
@@ -52,7 +38,7 @@
   [^GoPluginApiRequest request]
   (let [req-name (.requestName request)
         req-data (when-not (str/blank? (.requestBody request))
-                   (json-decode (.requestBody request)))
+                   (u/json-decode-map (.requestBody request)))
         result (handle-request req-name req-data)]
     (cond
       (true? result)
@@ -62,7 +48,7 @@
       result
 
       :else
-      (DefaultGoPluginApiResponse/success (json-encode result)))))
+      (DefaultGoPluginApiResponse/success (u/json-encode result)))))
 
 
 
@@ -74,7 +60,7 @@
   [_ _]
   (let [icon-svg (slurp (io/resource "amperity/gocd/agent/aurora/logo.svg"))]
     {"content_type" "image/svg+xml"
-     "data" (.encodeToString (Base64/getEncoder) (.getBytes icon-svg))}))
+     "data" (u/b64-encode-str icon-svg)}))
 
 
 ;; This message is a request to the plugin to provide plugin capabilities.
