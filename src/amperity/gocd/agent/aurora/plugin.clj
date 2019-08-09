@@ -88,8 +88,8 @@
 (defmethod handle-request "cd.go.elastic-agent.get-icon"
   [_ _ _]
   (let [icon-svg (slurp (io/resource "amperity/gocd/agent/aurora/logo.svg"))]
-    {"content_type" "image/svg+xml"
-     "data" (u/b64-encode-str icon-svg)}))
+    {:content_type "image/svg+xml"
+     :data (u/b64-encode-str icon-svg)}))
 
 
 ;; This message is a request to the plugin to provide plugin capabilities.
@@ -97,9 +97,9 @@
 ;; features for a user.
 (defmethod handle-request "cd.go.elastic-agent.get-capabilities"
   [_ _ _]
-  {"supports_plugin_status_report" false
-   "supports_cluster_status_report" false
-   "supports_agent_status_report" false})
+  {:supports_plugin_status_report false
+   :supports_cluster_status_report false
+   :supports_agent_status_report false})
 
 
 ;; This message is a request to the plugin perform the migration on the
@@ -108,11 +108,11 @@
 ;; version of the plugin.
 (defmethod handle-request "cd.go.elastic-agent.migrate-config"
   [_ _ data]
-  (let [cluster-profiles (get data "cluster_profiles")
-        agent-profiles (get data "elastic_agent_profiles")]
+  (let [cluster-profiles (:cluster_profiles data)
+        agent-profiles (:elastic_agent_profiles data)]
     ;; TODO: validate and fixup any existing config
-    {"cluster_profiles" (vec cluster-profiles)
-     "elastic_agent_profiles" (vec agent-profiles)}))
+    {:cluster_profiles (vec cluster-profiles)
+     :elastic_agent_profiles (vec agent-profiles)}))
 
 
 
@@ -124,29 +124,29 @@
 ;; current state of the elastic agent.
 (defmethod handle-request "cd.go.elastic-agent.agent-status-report"
   [_ _ data]
-  (let [agent-id (get data "elastic_agent_id")
-        cluster-profile (get data "cluster_profile_properties")
-        job-info (get data "job_identifier")]
+  (let [agent-id (:elastic_agent_id data)
+        cluster-profile (:cluster_profile_properties data)
+        job-info (:job_identifier data)]
     ;; TODO: implement agent status report
-    {"view" "<span><strong>NYI:<strong> agent status</span>"}))
+    {:view "<span><strong>NYI:<strong> agent status</span>"}))
 
 
 ;; If plugin supports cluster status report, this message must be implemented
 ;; to provide the overall status of the cluster.
 (defmethod handle-request "cd.go.elastic-agent.cluster-status-report"
   [_ _ data]
-  (let [cluster-profile (get data "cluster_profile_properties")]
+  (let [cluster-profile (:cluster_profile_properties data)]
     ;; TODO: implement cluster status report
-    {"view" "<span><strong>NYI:<strong> cluster status</span>"}))
+    {:view "<span><strong>NYI:<strong> cluster status</span>"}))
 
 
 ;; If plugin supports the plugin status report, this message must be
 ;; implemented to provide the overall status of the environment.
 (defmethod handle-request "cd.go.elastic-agent.plugin-status-report"
   [_ _ data]
-  (let [cluster-profiles (get data "all_cluster_profile_properties")]
+  (let [cluster-profiles (:all_cluster_profile_properties data)]
     ;; TODO: implement plugin status report
-    {"view" "<span><strong>NYI:<strong> plugin status</span>"}))
+    {:view "<span><strong>NYI:<strong> plugin status</span>"}))
 
 
 
@@ -157,21 +157,21 @@
 (defmethod handle-request "cd.go.elastic-agent.get-cluster-profile-view"
   [_ _ _]
   (let [view-html (slurp (io/resource "amperity/gocd/agent/aurora/cluster-profile-view.html"))]
-    {"template" view-html}))
+    {:template view-html}))
 
 
 ;; This is a message that the plugin should implement, to allow users to
 ;; configure cluster profiles from the Elastic Profiles View in GoCD.
 (defmethod handle-request "cd.go.elastic-agent.get-cluster-profile-metadata"
   [_ _ _]
-  [{"key" "aurora_url"
-    "metadata" {"required" true, "secure" false}}
-   {"key" "aurora_cluster"
-    "metadata" {"required" true, "secure" false}}
-   {"key" "aurora_role"
-    "metadata" {"required" true, "secure" false}}
-   {"key" "aurora_env"
-    "metadata" {"required" true, "secure" false}}])
+  [{:key "aurora_url"
+    :metadata {:required true, :secure false}}
+   {:key "aurora_cluster"
+    :metadata {:required true, :secure false}}
+   {:key "aurora_role"
+    :metadata {:required true, :secure false}}
+   {:key "aurora_env"
+    :metadata {:required true, :secure false}}])
 
 
 ;; This call is expected to validate the user inputs that form a part of
@@ -191,17 +191,19 @@
 (defmethod handle-request "cd.go.elastic-agent.get-elastic-agent-profile-view"
   [_ _ _]
   (let [view-html (slurp (io/resource "amperity/gocd/agent/aurora/elastic-agent-profile-view.html"))]
-    {"template" view-html}))
+    {:template view-html}))
 
 
 ;; This is a message that the plugin should implement, to allow users to
 ;; configure elastic agent profiles from the Elastic Profiles View in GoCD.
 (defmethod handle-request "cd.go.elastic-agent.get-elastic-agent-profile-metadata"
   [_ _ _]
-  [{"key" "agent_cpu"
-    "metadata" {"required" true, "secure" false}}
-   {"key" "agent_ram"
-    "metadata" {"required" true, "secure" false}}])
+  [{:key "agent_cpu"
+    :metadata {:required true, :secure false}}
+   {:key "agent_ram"
+    :metadata {:required true, :secure false}}
+   {:key "agent_disk"
+    :metadata {:required false, :secure false}}])
 
 
 ;; This call is expected to validate the user inputs that form a part of the
@@ -229,7 +231,7 @@
 ;; NOTE: calls occur on multiple threads
 (defmethod handle-request "cd.go.elastic-agent.server-ping"
   [state _ data]
-  (let [cluster-profiles (get data "all_cluster_profile_properties")]
+  (let [cluster-profiles (:all_cluster_profile_properties data)]
     ;; TODO: terminate idle agents
     ;; - Take list of known agents
     ;; - Maybe call Aurora to check on their statuses and remove crashed ones?

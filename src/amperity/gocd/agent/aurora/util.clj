@@ -14,7 +14,7 @@
   "amperity.gocd.agent.aurora")
 
 
-(def ^:private gson
+(def ^:private ^Gson gson
   (Gson.))
 
 
