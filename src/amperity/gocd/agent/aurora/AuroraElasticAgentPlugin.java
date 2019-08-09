@@ -55,10 +55,17 @@ public class AuroraElasticAgentPlugin implements GoPlugin {
         }
 
         try {
-            IFn atom = Clojure.var("clojure.core", "atom");
-            this.state = (Atom)atom.invoke(Clojure.read("{:clients {}, :clusters {}, :agents {}}"));
+            IFn init = Clojure.var("amperity.gocd.agent.aurora.plugin", "initialize");
+            IFn logger = new clojure.lang.AFn() {
+                public Object invoke(Object level, Object message, Object throwable) {
+                    logPluginMessage((String)level, (String)message, (Throwable)throwable);
+                    return null;
+                }
+            };
+            Object initial = init.invoke(logger, accessor);
+            this.state = new Atom(initial);
         } catch (Exception ex) {
-            LOGGER.error("Failed to create plugin state atom", ex);
+            LOGGER.error("Failed to initialize plugin state", ex);
             throw ex;
         }
     }
@@ -73,6 +80,52 @@ public class AuroraElasticAgentPlugin implements GoPlugin {
     @Override
     public GoPluginApiResponse handle(GoPluginApiRequest request) throws UnhandledRequestTypeException {
         return (GoPluginApiResponse)this.handler.invoke(state, request);
+    }
+
+
+    /**
+     * Internal method to proxy logger requests.
+     *
+     * NOTE: this is only here because the `go-plugin-api` package does not
+     * actually include the `LoggingService` interface, which is only present
+     * in the internal GoCD plugin API. This means any reference to the
+     * `Logger` class from Clojure will introduce compilation errors with a
+     * `ClassNotFoundException` pointing at the interface. ಠ_ಠ
+     */
+    private static void logPluginMessage(String level, String message, Throwable throwable) {
+        switch(level) {
+            case "debug":
+                if (throwable != null) {
+                    LOGGER.debug(message, throwable);
+                } else {
+                    LOGGER.debug(message);
+                }
+                break;
+
+            case "info":
+                if (throwable != null) {
+                    LOGGER.info(message, throwable);
+                } else {
+                    LOGGER.info(message);
+                }
+                break;
+
+            case "warn":
+                if (throwable != null) {
+                    LOGGER.warn(message, throwable);
+                } else {
+                    LOGGER.warn(message);
+                }
+                break;
+
+            default:
+                if (throwable != null) {
+                    LOGGER.error(message, throwable);
+                } else {
+                    LOGGER.error(message);
+                }
+                break;
+        }
     }
 
 }

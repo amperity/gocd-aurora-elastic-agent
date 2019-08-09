@@ -1,20 +1,49 @@
 (ns amperity.gocd.agent.aurora.plugin
   "Core plugin implementation."
   (:require
+    [amperity.gocd.agent.aurora.client :as aurora]
+    [amperity.gocd.agent.aurora.logging :as log]
     [amperity.gocd.agent.aurora.util :as u]
     [clojure.java.io :as io]
     [clojure.string :as str])
   (:import
     com.google.gson.Gson
     (com.thoughtworks.go.plugin.api
-      GoApplicationAccessor)
+      GoApplicationAccessor
+      GoPluginIdentifier)
     (com.thoughtworks.go.plugin.api.exceptions
       UnhandledRequestTypeException)
     (com.thoughtworks.go.plugin.api.request
+      DefaultGoApiRequest
       GoPluginApiRequest)
     (com.thoughtworks.go.plugin.api.response
       DefaultGoPluginApiResponse
       GoPluginApiResponse)))
+
+
+;; ## State Initialization
+
+(def ^:private plugin-identifier
+  "Identifier for the type of plugin and compatible API versions."
+  (GoPluginIdentifier. "elastic-agent" ["5.0"]))
+
+
+(defn initialize
+  "Initialize the plugin state, returning an initial value for the state atom."
+  [logger ^GoApplicationAccessor app-accessor]
+  (alter-var-root #'log/logger (constantly logger))
+  (let [req (DefaultGoApiRequest. "go.processor.server-info.get" "1.0" plugin-identifier)
+        res (.submit app-accessor req)
+        server-info (when (= 200 (.responseCode res))
+                      (u/json-decode-map (.responseBody res)))]
+    (log/info "Got server-info status %s and body: %s"
+              (.responseCode res)
+              (.responseBody res))
+    {:server-url (:site_url server-info)
+     :clients {}
+     :clusters {}
+     :agents {}}))
+
 
 
 ;; ## Request Handling

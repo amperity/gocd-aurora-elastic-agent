@@ -1,23 +1,32 @@
 (ns amperity.gocd.agent.aurora.logging
-  "Basic logging support code.")
+  "Basic logging support code."
+  (:require
+    [clojure.stacktrace :refer [print-cause-trace]]
+    [clojure.string :as str]))
 
 
-(def ^:private logger
-  amperity.gocd.agent.aurora.AuroraElasticAgentPlugin/LOGGER)
+(let [lock (Object.)]
+  (defn logger
+    [level message ex]
+    (locking lock
+      (printf "[%s] %s\n" (str/upper-case level) message)
+      (when ex
+        (print-cause-trace ex)))))
 
 
-(defmacro ^:private deflog
-  "Define a logging function with the given level symbol."
+(defmacro ^:private deflevel
+  "Define logging functions for the given level."
   [level]
-  `(defn ~level
-     [& args#]
-     (if (instance? Throwable (first args#))
-       (let [[~'ex & more#] args#]
-         (. logger ~level (str (apply format more#)) ~(vary-meta 'ex assoc :tag 'Throwable))
-         (. logger ~level (str (apply format args#)))))))
+  `(do
+     (defn ~level
+       [message# & args#]
+       (logger ~(str level) (apply format message# args#) nil))
+     (defn ~(symbol (str level "x"))
+       [ex# message# & args#]
+       (logger ~(str level) (apply format message# args#) ex#))))
 
 
-(deflog debug)
-(deflog info)
-(deflog warn)
-(deflog error)
+(deflevel debug)
+(deflevel info)
+(deflevel warn)
+(deflevel error)
