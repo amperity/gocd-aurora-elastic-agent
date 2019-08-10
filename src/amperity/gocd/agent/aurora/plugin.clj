@@ -265,6 +265,7 @@
 ;; NOTE: calls occur on multiple threads
 (defmethod handle-request "cd.go.elastic-agent.create-agent"
   [state _ data]
+  (log/debug "create-agent: %s" (pr-str data))
   ;; {
   ;;   "auto_register_key": "1e0e05fc-eb45-11e5-bc83-93882adfccf6",
   ;;   "elastic_agent_profile_properties": {
@@ -304,6 +305,7 @@
 ;; example, plugin can check if flavor or region of VM is suitable.
 (defmethod handle-request "cd.go.elastic-agent.should-assign-work"
   [state _ data]
+  (log/debug "should-assign-work: %s" (pr-str data))
   ;; {
   ;;   "agent": {
   ;;     "agent_id": "i-283432d4",
@@ -333,7 +335,7 @@
   ;; TODO: implement should-assign-work logic
   ;; - Is the agent in the right environment? (maybe automatic)
   ;; - Does the agent have compatible profile settings?
-  (DefaultGoPluginApiResponse/error "NYI"))
+  (DefaultGoPluginApiResponse/success "true"))
 
 
 ;; The intent on this message is to notify the plugin on completion of the job.
@@ -341,6 +343,7 @@
 ;; case the same agent can be used for another job configuration.
 (defmethod handle-request "cd.go.elastic-agent.job-completion"
   [state _ data]
+  (log/debug "job-completion: %s" (pr-str data))
   ;; {
   ;;   "elastic_agent_id": "GoCD18efbeef995e40f688cd92dc22a4d332",
   ;;   "elastic_agent_profile_properties": {
@@ -364,4 +367,4 @@
   ;; TODO: implement job-completion logic
   ;; - Mark the agent as idle in our internal state? May not matter if we're
   ;;   always refreshing.
-  (DefaultGoPluginApiResponse/error "NYI"))
+  true)
