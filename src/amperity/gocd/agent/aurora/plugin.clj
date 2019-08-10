@@ -21,7 +21,8 @@
       GoPluginApiRequest)
     (com.thoughtworks.go.plugin.api.response
       DefaultGoPluginApiResponse
-      GoPluginApiResponse)))
+      GoPluginApiResponse)
+    java.time.Instant))
 
 
 ;; ## State Initialization
@@ -301,37 +302,33 @@
 ;; example, plugin can check if flavor or region of VM is suitable.
 (defmethod handle-request "cd.go.elastic-agent.should-assign-work"
   [state _ data]
-  (log/debug "should-assign-work: %s" (pr-str data))
-  ;; {
-  ;;   "agent": {
-  ;;     "agent_id": "i-283432d4",
-  ;;     "agent_state": "Idle",
-  ;;     "build_state": "Idle",
-  ;;     "config_state": "Enabled"
-  ;;   },
-  ;;   "environment": "staging",
-  ;;   "job_identifier": {
-  ;;     "job_id": 100,
-  ;;     "job_name": "run-upgrade",
-  ;;     "pipeline_counter": 1,
-  ;;     "pipeline_label": "build",
-  ;;     "pipeline_name": "build",
-  ;;     "stage_counter": "1",
-  ;;     "stage_name": "test-stage"
-  ;;   },
-  ;;   "elastic_agent_profile_properties": {
-  ;;       "Image": "gocd/gocd-agent-alpine-3.5:v18.1.0",
-  ;;       "MaxMemory": "https://docker-uri/"
-  ;;   },
-  ;;   "cluster_profile_properties": {
-  ;;     "Image": "DockerURI",
-  ;;     "MaxMemory": "500Mb"
-  ;;   }
-  ;; }
-  ;; TODO: implement should-assign-work logic
-  ;; - Is the agent in the right environment? (maybe automatic)
-  ;; - Does the agent have compatible profile settings?
-  (DefaultGoPluginApiResponse/success "true"))
+  (log/info "should-assign-work: %s" (pr-str data))
+  (let [cluster-profile (:cluster_profile_properties data)
+        agent-profile (:elastic_agent_profile_properties data)
+        agent-info (:agent data)
+        agent-id (:agent_id agent-info)
+        gocd-job (:job_identifier data)
+        job-id (str (:pipeline_name data) "/"
+                    (:pipeline_counter data) "/"
+                    (:stage_name data) "/"
+                    (:stage_counter data) "/"
+                    (:job_name data))]
+    (->
+      (if-let [resources (get-in @state [:agents agent-id :resources])]
+        ;; Determine if job requirements are satisfied by the agent.
+        (agent/resource-satisfied? agent-profile resources)
+        ;; No resources recorded for this agent, don't assign work to it.
+        false)
+      (boolean)
+      ;; DEBUG
+      (as-> decision
+        (do (log/info "Decided %s assign job %s to agent %s"
+                      (if decision "to" "not to")
+                      job-id
+                      agent-id)
+            decision))
+      (str)
+      (DefaultGoPluginApiResponse/success))))
 
 
 ;; The intent on this message is to notify the plugin on completion of the job.
