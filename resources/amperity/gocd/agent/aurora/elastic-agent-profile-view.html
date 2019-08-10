@@ -2,12 +2,18 @@
 
 <div class="form_item_block">
   <label>CPU:<span class='asterix'>*</span></label>
-  <input type="text" ng-model="agent_cpu" ng-required="true"/>
-  <span class="form_error" ng-show="GOINPUTNAME[agent_cpu].$error.server">{{GOINPUTNAME[agent_cpu].$error.server}}</span>
+  <input type="text" ng-model="cpu" ng-required="true" placeholder="1.00"/>
+  <span class="form_error" ng-show="GOINPUTNAME[cpu].$error.server">{{GOINPUTNAME[cpu].$error.server}}</span>
 </div>
 
 <div class="form_item_block">
   <label>Memory (MB):<span class='asterix'>*</span></label>
-  <input type="text" ng-model="agent_ram" ng-required="true"/>
-  <span class="form_error" ng-show="GOINPUTNAME[agent_ram].$error.server">{{GOINPUTNAME[agent_ram].$error.server}}</span>
+  <input type="text" ng-model="ram" ng-required="true" placeholder="512"/>
+  <span class="form_error" ng-show="GOINPUTNAME[ram].$error.server">{{GOINPUTNAME[ram].$error.server}}</span>
+</div>
+
+<div class="form_item_block">
+  <label>Disk (MB):</label>
+  <input type="text" ng-model="disk" ng-required="false" placeholder="1024"/>
+  <span class="form_error" ng-show="GOINPUTNAME[disk].$error.server">{{GOINPUTNAME[disk].$error.server}}</span>
 </div>

@@ -1,7 +1,9 @@
 (ns amperity.gocd.agent.aurora.plugin
   "Core plugin implementation."
   (:require
+    [amperity.gocd.agent.aurora.agent :as agent]
     [amperity.gocd.agent.aurora.client :as aurora]
+    [amperity.gocd.agent.aurora.cluster :as cluster]
     [amperity.gocd.agent.aurora.logging :as log]
     [amperity.gocd.agent.aurora.util :as u]
     [clojure.java.io :as io]
@@ -120,9 +122,8 @@
   [_ _ data]
   (let [cluster-profiles (:cluster_profiles data)
         agent-profiles (:elastic_agent_profiles data)]
-    ;; TODO: validate and fixup any existing config
-    {:cluster_profiles (vec cluster-profiles)
-     :elastic_agent_profiles (vec agent-profiles)}))
+    {:cluster_profiles (mapv cluster/migrate-profile cluster-profiles)
+     :elastic_agent_profiles (mapv agent/migrate-profile agent-profiles)}))
 
 
 
@@ -174,23 +175,14 @@
 ;; configure cluster profiles from the Elastic Profiles View in GoCD.
 (defmethod handle-request "cd.go.elastic-agent.get-cluster-profile-metadata"
   [_ _ _]
-  [{:key "aurora_url"
-    :metadata {:required true, :secure false}}
-   {:key "aurora_cluster"
-    :metadata {:required true, :secure false}}
-   {:key "aurora_role"
-    :metadata {:required true, :secure false}}
-   {:key "aurora_env"
-    :metadata {:required true, :secure false}}])
+  cluster/profile-metadata)
 
 
 ;; This call is expected to validate the user inputs that form a part of
 ;; the cluster profile.
 (defmethod handle-request "cd.go.elastic-agent.validate-cluster-profile"
   [_ _ settings]
-  ;; TODO: validate cluster profile settings
-  ;; {"key": "foo", "message": "..."}
-  [])
+  (cluster/validate-profile settings))
 
 
 
@@ -208,21 +200,14 @@
 ;; configure elastic agent profiles from the Elastic Profiles View in GoCD.
 (defmethod handle-request "cd.go.elastic-agent.get-elastic-agent-profile-metadata"
   [_ _ _]
-  [{:key "agent_cpu"
-    :metadata {:required true, :secure false}}
-   {:key "agent_ram"
-    :metadata {:required true, :secure false}}
-   {:key "agent_disk"
-    :metadata {:required false, :secure false}}])
+  agent/profile-metadata)
 
 
 ;; This call is expected to validate the user inputs that form a part of the
 ;; elastic agent profile.
 (defmethod handle-request "cd.go.elastic-agent.validate-elastic-agent-profile"
   [_ _ settings]
-  ;; TODO: validate agent profile settings
-  ;; {"key": "foo", "message": "..."}
-  [])
+  (agent/validate-profile settings))
 
 
 
