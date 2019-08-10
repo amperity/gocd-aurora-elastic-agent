@@ -6,17 +6,13 @@
     [clojure.string :as str]))
 
 
-;; TODO: rehost in S3 bucket
-(def gocd-download-url "https://download.gocd.org/binaries")
-;; TODO: get this from settings
-(def gocd-version "19.7.0")
-(def gocd-build "9567")
-
+;; ## Job Settings
 
 (defn- validate-settings!
   "Validate the configuration for running an agent."
   [params]
   (doseq [k [:server-url
+             :agent-source-url
              :auto-register-hostname
              :auto-register-key
              :elastic-plugin-id
@@ -25,28 +21,33 @@
       (when-not (string? v)
         (throw (IllegalArgumentException.
                  (str "Agent job settings must include a " (name k)
-                      " string, got: " (pr-str v))))))))
+                      " string, got: " (pr-str v)))))))
+  (when-let [environment (:auto-register-environment params)]
+    (when-not (string? environment)
+      (throw (IllegalArgumentException.
+               (str "Agent job setting auto-register-environment must be a"
+                    " string, got: " (pr-str environment)))))))
 
 
-(defn- agent-source-url
-  "Return the URL to fetch the GoCD agent zip from."
-  [version build]
-  (let [coord (str version "-" build)]
-    (str gocd-download-url "/" coord "/generic/go-agent-" coord ".zip")))
 
+;; ## Job Tasks
 
 (defn- install-proc
   "Constructs a new Aurora process definition to fetch and install the gocd
   agent."
-  [version build]
+  [source-url]
   {:name "agent:install"
    :daemon false
    :max_failures 1
    :ephemeral false
    :min_duration 5
-   :cmdline (str "wget -O go-agent.zip " (agent-source-url version build)
-                 " && unzip go-agent.zip"
-                 " && mv go-agent-" version " go-agent")
+   :cmdline (->>
+              ["set -e"
+               (str "wget -O go-agent.zip " source-url)
+               "unzip go-agent.zip"
+               "rm go-agent.zip"
+               "mv go-agent-* go-agent"]
+              (str/join "\n"))
    :final false})
 
 
@@ -108,7 +109,7 @@
   "Builds a task config map for a gocd agent."
   [job-name settings]
   (validate-settings! settings)
-  (let [procs [(install-proc gocd-version gocd-build)
+  (let [procs [(install-proc (:agent-source-url settings))
                (configure-proc settings)
                (run-proc)]
         order (into [] (comp (remove :final) (map :name)) procs)]

@@ -1,6 +1,7 @@
 (ns amperity.gocd.agent.aurora.client
   "Aurora client methods and wrappers."
   (:require
+    [amperity.gocd.agent.aurora.agent :as agent]
     [amperity.gocd.agent.aurora.job :as job]
     [amperity.gocd.agent.aurora.logging :as log]
     [amperity.gocd.agent.aurora.util :as u]
@@ -214,7 +215,7 @@
 (defn get-agent
   "Retrieve information about a specific agent."
   [^AuroraSchedulerManager$Client client agent-id]
-  (let [[aurora-cluster aurora-role aurora-env agent-name] (str/split agent-id #"/")
+  (let [{:keys [aurora-cluster aurora-role aurora-env agent-name]} (agent/parse-id agent-id)
         query (doto (TaskQuery.)
                 (.setRole aurora-role)
                 (.setEnvironment aurora-env)
@@ -233,51 +234,34 @@
 (defn launch-agent!
   "Use the aurora client to launch a new agent job."
   [^AuroraSchedulerManager$Client client
-   server-url ; TODO: can get from sending go.processor.server-info.get to the server
    cluster-profile
    agent-profile
-   agent-name ; TODO: determine free number from active agents or generate hash
-   gocd-register-key
-   gocd-environment
-   gocd-job]
+   agent-name
+   agent-task]
   (let [aurora-cluster (:aurora_cluster cluster-profile)
         aurora-role (:aurora_role cluster-profile)
         aurora-env (:aurora_env cluster-profile)
-        agent-id (str aurora-cluster "/" aurora-role "/" aurora-env "/" agent-name)
-        resources {:cpu (if-let [v (:agent_cpu agent-profile)]
-                          (Double/parseDouble v)
-                          1.0)
-                   :ram (if-let [v (:agent_ram agent-profile)]
-                          (Integer/parseInt v)
-                          1024)
-                   :disk (if-let [v (:agent_disk agent-profile)]
-                           (Integer/parseInt v)
-                           1024)}
-        ;; TODO: fully inject this? :thinking:
-        task (job/agent-task
-               agent-name
-               {:auto-register-hostname agent-name
-                :auto-register-environment gocd-environment
-                :auto-register-key gocd-register-key
-                :elastic-plugin-id u/plugin-id
-                :elastic-agent-id agent-id
-                :server-url server-url})
+        resources (merge agent/default-resources (agent/profile->resources agent-profile))
         job-config (->job-config
                      aurora-cluster
                      aurora-role
                      aurora-env
                      agent-name
                      resources
-                     task)]
-    (log/info "Submitting Aurora job %s" agent-id)
+                     agent-task)]
+    (log/info "Submitting Aurora job %s/%s/%s/%s"
+              aurora-cluster
+              aurora-role
+              aurora-env
+              agent-name)
     (let [response (.createJob client job-config)]
       (check-code! "CreateJob" response)
-      agent-id)))
+      true)))
 
 
 (defn kill-agent!
   [^AuroraSchedulerManager$Client client agent-id]
-  (let [[aurora-cluster aurora-role aurora-env agent-name] (str/split agent-id #"/")
+  (let [{:keys [aurora-cluster aurora-role aurora-env agent-name]} (agent/parse-id agent-id)
         job-key (->job-key aurora-role aurora-env agent-name)
         task-instances #{}
         response (.killTasks client job-key task-instances "Killed by GoCD Aurora Elastic Agent plugin")]

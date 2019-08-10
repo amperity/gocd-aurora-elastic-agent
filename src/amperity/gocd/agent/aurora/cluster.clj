@@ -4,6 +4,15 @@
     [clojure.string :as str]))
 
 
+(def default-agent-source-url
+  (let [version "19.7.0"
+        build "9567"
+        coord (str version "-" build)]
+    (str "https://download.gocd.org/binaries/" coord
+         "/generic/go-agent-" coord ".zip")))
+
+
+
 ;; ## Cluster Profiles
 
 (def profile-metadata

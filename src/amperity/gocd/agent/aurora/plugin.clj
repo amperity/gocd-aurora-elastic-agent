@@ -4,6 +4,7 @@
     [amperity.gocd.agent.aurora.agent :as agent]
     [amperity.gocd.agent.aurora.client :as aurora]
     [amperity.gocd.agent.aurora.cluster :as cluster]
+    [amperity.gocd.agent.aurora.job :as job]
     [amperity.gocd.agent.aurora.logging :as log]
     [amperity.gocd.agent.aurora.util :as u]
     [clojure.java.io :as io]
@@ -251,36 +252,30 @@
 (defmethod handle-request "cd.go.elastic-agent.create-agent"
   [state _ data]
   (log/debug "create-agent: %s" (pr-str data))
-  ;; {
-  ;;   "auto_register_key": "1e0e05fc-eb45-11e5-bc83-93882adfccf6",
-  ;;   "elastic_agent_profile_properties": {
-  ;;     "Image": "gocd/gocd-agent-alpine-3.5:v18.1.0",
-  ;;     "MaxMemory": "https://docker-uri/"
-  ;;   },
-  ;;   "cluster_profile_properties": {
-  ;;     "Image": "DockerURI",
-  ;;     "MaxMemory": "500Mb"
-  ;;   },
-  ;;   "environment": "prod",
-  ;;   "job_identifier": {
-  ;;     "job_id": 100,
-  ;;     "job_name": "test-job",
-  ;;     "pipeline_counter": 1,
-  ;;     "pipeline_label": "build",
-  ;;     "pipeline_name": "build",
-  ;;     "stage_counter": "1",
-  ;;     "stage_name": "test-stage"
-  ;;   }
-  ;; }
   (let [cluster-profile (:cluster_profile_properties data)
         agent-profile (:elastic_agent_profile_properties data)
-        gocd-register-key (:auto_register_key data)
-        gocd-environment (:environment data)
-        gocd-job (:job_identifier data)]
+        gocd-job (:job_identifier data)
+        source-url (if (str/blank? (:agent_source_url cluster-profile))
+                     cluster/default-agent-source-url
+                     (:agent_source_url cluster-profile))
+        ;; TODO: determine free number from active agents or generate hash
+        agent-name "test-agent-0"
+        agent-id (agent/form-id
+                   (:aurora_cluster cluster-profile)
+                   (:aurora_role cluster-profile)
+                   (:aurora_env cluster-profile)
+                   agent-name)
+        agent-task (job/agent-task
+                     agent-name
+                     {:server-url (:server-url @state)
+                      :agent-source-url source-url
+                      :auto-register-hostname agent-name
+                      :auto-register-environment (:environment data)
+                      :auto-register-key (:auto_register_key data)
+                      :elastic-plugin-id u/plugin-id
+                      :elastic-agent-id agent-id})]
     ;; TODO: implement create-agent logic
     ;; - Take list of known agents
-    ;; - Maybe call Aurora to check on their statuses and remove crashed ones?
-    ;; - Maybe call GoCD accessor to refresh agent status?
     ;; - Filter to agents who could be assigned the job (matching environment and compatible agent profile)
     ;; - If no available agents, check overall capacity
     ;; - If capacity, launch an agent service in Aurora
@@ -290,13 +285,10 @@
         (locking client
           (aurora/launch-agent!
             client
-            (:server-url @state)
             cluster-profile
             agent-profile
-            "test-agent-0"
-            gocd-register-key
-            gocd-environment
-            gocd-job)
+            agent-name
+            agent-task)
           (swap! state assoc :agent-running? true))))
     true))
 
