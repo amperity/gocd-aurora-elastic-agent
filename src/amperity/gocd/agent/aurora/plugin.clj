@@ -228,22 +228,43 @@
 ;; NOTE: calls occur on multiple threads
 (defmethod handle-request "cd.go.elastic-agent.server-ping"
   [state _ data]
-  (log/debug "server-ping: %s" (pr-str data))
-  (log/debug "plugin state: %s" (pr-str @state))
+  (log/info "server-ping: %s" (pr-str data))
+  (log/info "plugin state: %s" (pr-str @state))
   (let [cluster-profiles (:all_cluster_profile_properties data)
         app-accessor ^GoApplicationAccessor (:app-accessor @state)
         req (DefaultGoApiRequest. "go.processor.elastic-agents.list-agents" "1.0" plugin-identifier)
         res (.submit app-accessor req)
         agents (when (= 200 (.responseCode res))
                  (u/json-decode-vec (.responseBody res)))]
+    ;; TODO: update cluster quota information
     (log/info "listed gocd agents: %s" (pr-str agents))
-    ;; TODO: terminate idle agents
-    ;; - Take list of known agents
-    ;; - Maybe call Aurora to check on their statuses and remove crashed ones?
-    ;; - Maybe call GoCD accessor to refresh agent status?
-    ;; - Remove any agents known to be busy
-    ;; - Filter to agents whose last job was more than five minutes ago
-    ;; - Terminate those agents, update internal state
+
+    ;; Observed values:
+    ;; | agent_state | build_state | config_state |
+    ;; |-------------|-------------|--------------|
+    ;; | Missing     | Unknown     | Enabled      |
+    ;; | LostContact | Unknown     | Enabled      |
+    ;; | LostContact | Unknown     | Disabled     |
+    ;; | Idle        | Idle        | Enabled      |
+
+    ;; agent_state is Missing or LostContact:
+    ;;   - disable agent if config_state is Enabled
+    ;;   - check job state in Aurora
+    ;;   - :active/:pending => something is wrong, kill the job
+    ;;   - :finished/:failed/* => job shut down, delete agent
+    ;; config_state is Enabled and agent_state is ???:
+    ;;   - healthy agent
+    ;;   - if build_state is ??? => update last-active time
+    ;;   - if build_state is Idle
+    ;;     - check if last-active over TTL minutes ago => disable agent
+    ;; config_state is Disabled and build_state is ???:
+    ;;   - wait for build to finish
+    ;; config_state is Disabled and build_state is Unknown/???:
+    ;;   - quiescent
+    ;;   - check job state in Aurora
+    ;;   - :active/:pending => kill the job
+    ;;   - :finished/:failed/* => job shut down, delete agent
+
     true))
 
 
