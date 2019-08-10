@@ -1,10 +1,13 @@
 (ns amperity.gocd.agent.aurora.client
   "Aurora client methods and wrappers."
   (:require
+    [amperity.gocd.agent.aurora.job :as job]
+    [amperity.gocd.agent.aurora.logging :as log]
     [amperity.gocd.agent.aurora.util :as u]
     [clojure.java.io :as io]
     [clojure.string :as str])
   (:import
+    java.time.Instant
     (org.apache.aurora.gen
       AuroraSchedulerManager$Client
       AuroraSchedulerManager$Client$Factory
@@ -27,106 +30,18 @@
       THttpClient)))
 
 
-;; TODO: get these from settings
-(def gocd-download-url "https://download.gocd.org/binaries")
-(def gocd-version "19.7.0")
-(def gocd-build "9567")
-
-
-
-;; ## Job Task
-
-(defn- agent-source-url
-  "Return the URL to fetch the GoCD agent zip from."
-  [version build]
-  (let [coord (str version "-" build)]
-    (str gocd-download-url "/" coord "/generic/go-agent-" coord ".zip")))
-
-
-(defn- install-proc
-  "Constructs a new Aurora process definition to fetch and install the gocd
-  agent."
-  [version build]
-  {:name "agent:install"
-   :daemon false
-   :max_failures 1
-   :ephemeral false
-   :min_duration 5
-   :cmdline (str "wget -O go-agent.zip " (agent-source-url version build)
-                 " && unzip go-agent.zip"
-                 " && mv go-agent-" version " go-agent")
-   :final false})
-
-
-(defn- configure-proc
-  "Constructs a new Aurora process definition to fetch and install the gocd
-  agent."
-  [params]
-  (let [wrapper-properties-path "go-agent/wrapper-config/wrapper-properties.conf"
-        autoregister-properties-path "go-agent/config/autoregister.properties"
-        logback-xml (slurp (io/resource "amperity/gocd/agent/aurora/logback-agent.xml"))]
-    (letfn [(clean
-              [path]
-              (str "rm -f " path))
-            (autoregister-property
-              [k v]
-              (str "echo '" k "=" v "' >> " autoregister-properties-path))
-            (wrapper-property
-              [k v]
-              (str "echo '" k "=" v "' >> " wrapper-properties-path))]
-      {:name "agent:configure"
-       :daemon false
-       :max_failures 1
-       :ephemeral false
-       :min_duration 5
-       :cmdline (str/join
-                  "\n"
-                  ["set -e"
-                   "mkdir go-agent/config"
-                   (clean wrapper-properties-path)
-                   (wrapper-property "wrapper.app.parameter.100" "-serverUrl")
-                   (wrapper-property "wrapper.app.parameter.101" (:server-url params))
-                   (clean autoregister-properties-path)
-                   (autoregister-property "agent.auto.register.key" (:auto-register-key params))
-                   (autoregister-property "agent.auto.register.hostname" (:auto-register-hostname params))
-                   (autoregister-property "agent.auto.register.environments" (:auto-register-environment params))
-                   (autoregister-property "agent.auto.register.elasticAgent.pluginId" (:elastic-plugin-id params))
-                   (autoregister-property "agent.auto.register.elasticAgent.agentId" (:elastic-agent-id params))
-                   (str "base64 -d <<<'" (u/b64-encode-str logback-xml) "' > go-agent/config/agent-bootstrapper-logback.xml")
-                   "cp go-agent/config/agent-bootstrapper-logback.xml go-agent/config/agent-launcher-logback.xml"
-                   "cp go-agent/config/agent-bootstrapper-logback.xml go-agent/config/agent-logback.xml"])
-       :final false})))
-
-
-(defn- run-proc
-  "Constructs a new Aurora process definition to run the gocd agent."
-  []
-  {:name "agent:run"
-   :daemon false
-   :max_failures 1
-   :ephemeral false
-   :min_duration 5
-   :cmdline "go-agent/bin/go-agent console"
-   :final false})
-
-
-(defn- agent-task
-  "Builds a task config map for a gocd agent."
-  [job-name settings]
-  (let [procs [(install-proc gocd-version gocd-build)
-               (configure-proc settings)
-               (run-proc)]
-        order (into [] (comp (remove :final) (map :name)) procs)]
-    {:name job-name
-     :finalization_wait 30
-     :max_failures 1
-     :max_concurrency 0
-     :constraints [{:order order}]
-     :processes procs}))
-
-
-
 ;; ## Aurora Interop
+
+(defn- enum->keyword
+  "Converts an enum constant to a keyword by lower-casing and kebab-casing
+  the constant's name. Returns nil when value is nil."
+  [value]
+  (when value
+    (-> (str value)
+        (str/lower-case)
+        (str/replace "_" "-")
+        (keyword))))
+
 
 (defn- ->job-key
   "Constructs a new Aurora `JobKey` object."
@@ -190,8 +105,61 @@
       (.setInstanceCount 1))))
 
 
+(defn- aggregate-task-state
+  "Computes an aggregate job state from the task state counts."
+  [task-states]
+  (or (first (filter (comp pos-int? task-states)
+                     [:active :pending :failed :finished]))
+      :unknown))
 
-;; ## Aurora API
+
+(defn- JobSummary->map
+  "Coerce a job summary to a Clojure map."
+  [^JobSummary summary]
+  (let [job-config (.getJob summary)
+        job-key (.getKey job-config)
+        ;task-config (.getTaskConfig job-config)
+        stats (.getStats summary)
+        task-states {:active (.getActiveTaskCount stats)
+                     :failed (.getFailedTaskCount stats)
+                     :finished (.getFinishedTaskCount stats)
+                     :pending (.getPendingTaskCount stats)}]
+    {:role (.getRole job-key)
+     :environment (.getEnvironment job-key)
+     :name (.getName job-key)
+     :state (aggregate-task-state task-states)
+     :task-states task-states}))
+
+
+(defn- TaskEvent->map
+  [^TaskEvent event]
+  (cond-> {:time (Instant/ofEpochMilli (.getTimestamp event))
+           :status (enum->keyword (.getStatus event))
+           :message (.getMessage event)
+           :scheduler (.getScheduler event)}
+    (.isSetScheduler event)
+    (assoc :scheduler (.getScheduler event))
+
+    (.isSetMessage event)
+    (assoc :message (.getMessage event))))
+
+
+(defn- ScheduledTask->map
+  [^ScheduledTask task]
+  (let [assigned (.getAssignedTask task)]
+    (cond-> {:task-id (.getTaskId assigned)
+             :slave-id (.getSlaveId assigned)
+             :slave-host (.getSlaveHost assigned)
+             :instance-id (.getInstanceId assigned)
+             :status (enum->keyword (.getStatus task))
+             :failures (.getFailureCount task)
+             :events (mapv TaskEvent->map (.getTaskEvents task))}
+      (.getAncestorId task)
+      (assoc :ancestor-id (.getAncestorId task)))))
+
+
+
+;; ## Aurora Calls
 
 (defn get-client
   "Open a client connected to the given URL. Retrieves a cached client from the
@@ -227,6 +195,41 @@
                        :errors (vec (.getDetails response))})))))
 
 
+
+;; ## Agent API
+
+(defn list-agents
+  "List the agent jobs running in Aurora."
+  [^AuroraSchedulerManager$Client client aurora-role]
+  (let [response (.getJobSummary client aurora-role)]
+    (check-code! "GetJobSummary" response)
+    (into []
+          (map JobSummary->map)
+          (.. response
+              getResult
+              getJobSummaryResult
+              getSummaries))))
+
+
+(defn get-agent
+  "Retrieve information about a specific agent."
+  [^AuroraSchedulerManager$Client client agent-id]
+  (let [[aurora-cluster aurora-role aurora-env agent-name] (str/split agent-id #"/")
+        query (doto (TaskQuery.)
+                (.setRole aurora-role)
+                (.setEnvironment aurora-env)
+                (.setJobName agent-name))
+        response (.getTasksStatus client query)
+        _ (check-code! "GetTasksStatus" response)
+        tasks (mapv ScheduledTask->map (.. response
+                                           getResult
+                                           getScheduleStatusResult
+                                           getTasks))]
+    {:name agent-name
+     :state (aggregate-task-state (frequencies (map :status tasks)))
+     :tasks tasks}))
+
+
 (defn launch-agent!
   "Use the aurora client to launch a new agent job."
   [^AuroraSchedulerManager$Client client
@@ -234,17 +237,24 @@
    cluster-profile
    agent-profile
    agent-name ; TODO: determine free number from active agents or generate hash
-   gocd-environment
    gocd-register-key
+   gocd-environment
    gocd-job]
   (let [aurora-cluster (:aurora_cluster cluster-profile)
         aurora-role (:aurora_role cluster-profile)
         aurora-env (:aurora_env cluster-profile)
         agent-id (str aurora-cluster "/" aurora-role "/" aurora-env "/" agent-name)
-        resources {:cpu (:agent_cpu agent-profile 1.0)
-                   :ram (:agent_ram agent-profile 2048)
-                   :disk (:agent_disk agent-profile 2048)}
-        task (agent-task
+        resources {:cpu (if-let [v (:agent_cpu agent-profile)]
+                          (Double/parseDouble v)
+                          1.0)
+                   :ram (if-let [v (:agent_ram agent-profile)]
+                          (Integer/parseInt v)
+                          1024)
+                   :disk (if-let [v (:agent_disk agent-profile)]
+                           (Integer/parseInt v)
+                           1024)}
+        ;; TODO: fully inject this? :thinking:
+        task (job/agent-task
                agent-name
                {:auto-register-hostname agent-name
                 :auto-register-environment gocd-environment
@@ -259,8 +269,17 @@
                      agent-name
                      resources
                      task)]
-    ;(log/infof "Submitting Aurora job %s/%s/%s/%s" job-id)
-    (let [response (locking client
-                     (.createJob client job-config))]
+    (log/info "Submitting Aurora job %s" agent-id)
+    (let [response (.createJob client job-config)]
       (check-code! "CreateJob" response)
       agent-id)))
+
+
+(defn kill-agent!
+  [^AuroraSchedulerManager$Client client agent-id]
+  (let [[aurora-cluster aurora-role aurora-env agent-name] (str/split agent-id #"/")
+        job-key (->job-key aurora-role aurora-env agent-name)
+        task-instances #{}
+        response (.killTasks client job-key task-instances "Killed by GoCD Aurora Elastic Agent plugin")]
+    (check-code! "KillTasks" response)
+    {:details (mapv #(.getMessage ^ResponseDetail %) (.getDetails response))}))
