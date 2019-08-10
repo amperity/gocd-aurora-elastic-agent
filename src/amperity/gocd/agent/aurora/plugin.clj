@@ -69,19 +69,25 @@
 (defn handler
   "Request handling entry-point."
   [state ^GoPluginApiRequest request]
-  (let [req-name (.requestName request)
-        req-data (when-not (str/blank? (.requestBody request))
-                   (u/json-decode-map (.requestBody request)))
-        result (handle-request state req-name req-data)]
-    (cond
-      (true? result)
-      (DefaultGoPluginApiResponse/success "")
+  (try
+    (let [req-name (.requestName request)
+          req-data (when-not (str/blank? (.requestBody request))
+                     (u/json-decode-map (.requestBody request)))
+          result (handle-request state req-name req-data)]
+      (cond
+        (true? result)
+        (DefaultGoPluginApiResponse/success "")
 
-      (instance? GoPluginApiResponse result)
-      result
+        (instance? GoPluginApiResponse result)
+        result
 
-      :else
-      (DefaultGoPluginApiResponse/success (u/json-encode result)))))
+        :else
+        (DefaultGoPluginApiResponse/success (u/json-encode result))))
+    (catch UnhandledRequestTypeException ex
+      (throw ex))
+    (catch Exception ex
+      (log/errorx ex "Failed to process %s plugin request" (.requestName request))
+      (DefaultGoPluginApiResponse/error (.getMessage ex)))))
 
 
 
