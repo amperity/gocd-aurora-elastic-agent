@@ -241,7 +241,15 @@
 ;; NOTE: calls occur on multiple threads
 (defmethod handle-request "cd.go.elastic-agent.server-ping"
   [state _ data]
-  (let [cluster-profiles (:all_cluster_profile_properties data)]
+  (log/debug "server-ping: %s" (pr-str data))
+  (log/debug "plugin state: %s" (pr-str @state))
+  (let [cluster-profiles (:all_cluster_profile_properties data)
+        app-accessor ^GoApplicationAccessor (:app-accessor @state)
+        req (DefaultGoApiRequest. "go.processor.elastic-agents.list-agents" "1.0" plugin-identifier)
+        res (.submit app-accessor req)
+        agents (when (= 200 (.responseCode res))
+                 (u/json-decode-vec (.responseBody res)))]
+    (log/info "listed gocd agents: %s" (pr-str agents))
     ;; TODO: terminate idle agents
     ;; - Take list of known agents
     ;; - Maybe call Aurora to check on their statuses and remove crashed ones?
