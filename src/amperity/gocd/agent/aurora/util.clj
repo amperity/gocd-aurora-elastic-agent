@@ -77,3 +77,14 @@
   "Encode the bytes in a string to a Base64-encoded string."
   [^String data]
   (.encodeToString (Base64/getEncoder) (.getBytes data)))
+
+
+(defn enum->keyword
+  "Converts an enum constant to a keyword by lower-casing and kebab-casing
+  the constant's name. Returns nil when value is nil."
+  [value]
+  (when value
+    (-> (str value)
+        (str/lower-case)
+        (str/replace "_" "-")
+        (keyword))))

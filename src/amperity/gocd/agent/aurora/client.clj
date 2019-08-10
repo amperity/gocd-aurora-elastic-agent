@@ -33,17 +33,6 @@
 
 ;; ## Aurora Interop
 
-(defn- enum->keyword
-  "Converts an enum constant to a keyword by lower-casing and kebab-casing
-  the constant's name. Returns nil when value is nil."
-  [value]
-  (when value
-    (-> (str value)
-        (str/lower-case)
-        (str/replace "_" "-")
-        (keyword))))
-
-
 (defn- ->job-key
   "Constructs a new Aurora `JobKey` object."
   ^JobKey
@@ -135,7 +124,7 @@
 (defn- TaskEvent->map
   [^TaskEvent event]
   (cond-> {:time (Instant/ofEpochMilli (.getTimestamp event))
-           :status (enum->keyword (.getStatus event))
+           :status (u/enum->keyword (.getStatus event))
            :message (.getMessage event)
            :scheduler (.getScheduler event)}
     (.isSetScheduler event)
@@ -152,7 +141,7 @@
              :slave-id (.getSlaveId assigned)
              :slave-host (.getSlaveHost assigned)
              :instance-id (.getInstanceId assigned)
-             :status (enum->keyword (.getStatus task))
+             :status (u/enum->keyword (.getStatus task))
              :failures (.getFailureCount task)
              :events (mapv TaskEvent->map (.getTaskEvents task))}
       (.getAncestorId task)
