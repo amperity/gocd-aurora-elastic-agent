@@ -191,33 +191,40 @@
 (defn list-agents
   "List the agent jobs running in Aurora."
   [^AuroraSchedulerManager$Client client aurora-role]
-  (let [response (.getJobSummary client aurora-role)]
-    (check-code! "GetJobSummary" response)
-    (into []
-          (map JobSummary->map)
-          (.. response
-              getResult
-              getJobSummaryResult
-              getSummaries))))
+  ;; FIXME: thrift version issue here maybe?
+  (locking client
+    (let [response (.getJobSummary client aurora-role)]
+      (check-code! "GetJobSummary" response)
+      (into []
+            (map JobSummary->map)
+            (.. response
+                getResult
+                getJobSummaryResult
+                getSummaries)))))
 
 
 (defn get-agent
   "Retrieve information about a specific agent."
   [^AuroraSchedulerManager$Client client agent-id]
-  (let [{:keys [aurora-cluster aurora-role aurora-env agent-name]} (agent/parse-id agent-id)
-        query (doto (TaskQuery.)
-                (.setRole aurora-role)
-                (.setEnvironment aurora-env)
-                (.setJobName agent-name))
-        response (.getTasksStatus client query)
-        _ (check-code! "GetTasksStatus" response)
-        tasks (mapv ScheduledTask->map (.. response
-                                           getResult
-                                           getScheduleStatusResult
-                                           getTasks))]
-    {:name agent-name
-     :state (aggregate-task-state (frequencies (map :status tasks)))
-     :tasks tasks}))
+  (locking client
+    (let [{:keys [aurora-cluster aurora-role aurora-env agent-name]} (agent/parse-id agent-id)
+          query (doto (TaskQuery.)
+                  (.setRole aurora-role)
+                  (.setEnvironment aurora-env)
+                  (.setJobName agent-name))
+          response (.getTasksStatus client query)]
+      (check-code! "GetTasksStatus" response)
+      (->
+        (.. response
+            getResult
+            getScheduleStatusResult
+            getTasks)
+        (last)
+        (ScheduledTask->map)
+        (assoc :aurora-cluster aurora-cluster
+               :aurora-role aurora-role
+               :aurora-env aurora-env
+               :agent-name agent-name)))))
 
 
 (defn launch-agent!
@@ -243,16 +250,18 @@
               aurora-role
               aurora-env
               agent-name)
-    (let [response (.createJob client job-config)]
-      (check-code! "CreateJob" response)
-      true)))
+    (locking client
+      (let [response (.createJob client job-config)]
+        (check-code! "CreateJob" response)
+        true))))
 
 
 (defn kill-agent!
   [^AuroraSchedulerManager$Client client agent-id]
-  (let [{:keys [aurora-cluster aurora-role aurora-env agent-name]} (agent/parse-id agent-id)
-        job-key (->job-key aurora-role aurora-env agent-name)
-        task-instances #{}
-        response (.killTasks client job-key task-instances "Killed by GoCD Aurora Elastic Agent plugin")]
-    (check-code! "KillTasks" response)
-    {:details (mapv #(.getMessage ^ResponseDetail %) (.getDetails response))}))
+  (locking client
+    (let [{:keys [aurora-cluster aurora-role aurora-env agent-name]} (agent/parse-id agent-id)
+          job-key (->job-key aurora-role aurora-env agent-name)
+          task-instances #{}
+          response (.killTasks client job-key task-instances "Killed by GoCD Aurora Elastic Agent plugin")]
+      (check-code! "KillTasks" response)
+      {:details (mapv #(.getMessage ^ResponseDetail %) (.getDetails response))})))
