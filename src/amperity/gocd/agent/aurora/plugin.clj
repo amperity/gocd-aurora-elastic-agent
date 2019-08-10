@@ -35,11 +35,15 @@
   (let [req (DefaultGoApiRequest. "go.processor.server-info.get" "1.0" plugin-identifier)
         res (.submit app-accessor req)
         server-info (when (= 200 (.responseCode res))
-                      (u/json-decode-map (.responseBody res)))]
+                      (u/json-decode-map (.responseBody res)))
+        server-url (if-let [site-url (:site_url server-info)]
+                     (str site-url "/go")
+                     "http://localhost:8153/go")]
     (log/info "Got server-info status %s and body: %s"
               (.responseCode res)
               (.responseBody res))
-    {:server-url (:site_url server-info)
+    {:app-accessor app-accessor
+     :server-url server-url
      :clients {}
      :clusters {}
      :agents {}}))
