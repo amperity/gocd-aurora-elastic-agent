@@ -287,14 +287,33 @@
   ;;     "stage_name": "test-stage"
   ;;   }
   ;; }
-  ;; TODO: implement create-agent logic
-  ;; - Take list of known agents
-  ;; - Maybe call Aurora to check on their statuses and remove crashed ones?
-  ;; - Maybe call GoCD accessor to refresh agent status?
-  ;; - Filter to agents who could be assigned the job (matching environment and compatible agent profile)
-  ;; - If no available agents, check overall capacity
-  ;; - If capacity, launch an agent service in Aurora
-  true)
+  (let [cluster-profile (:cluster_profile_properties data)
+        agent-profile (:elastic_agent_profile_properties data)
+        gocd-register-key (:auto_register_key data)
+        gocd-environment (:environment data)
+        gocd-job (:job_identifier data)]
+    ;; TODO: implement create-agent logic
+    ;; - Take list of known agents
+    ;; - Maybe call Aurora to check on their statuses and remove crashed ones?
+    ;; - Maybe call GoCD accessor to refresh agent status?
+    ;; - Filter to agents who could be assigned the job (matching environment and compatible agent profile)
+    ;; - If no available agents, check overall capacity
+    ;; - If capacity, launch an agent service in Aurora
+    ;; HAXIN ALERT
+    (when-not (:agent-running? @state)
+      (let [client (aurora/get-client state (:aurora_url cluster-profile))]
+        (locking client
+          (aurora/launch-agent!
+            client
+            (:server-url @state)
+            cluster-profile
+            agent-profile
+            "test-agent-0"
+            gocd-register-key
+            gocd-environment
+            gocd-job)
+          (swap! state assoc :agent-running? true))))
+    true))
 
 
 ;; When there are multiple agents available to run a job, the server will
