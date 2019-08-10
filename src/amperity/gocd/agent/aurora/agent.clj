@@ -4,28 +4,32 @@
     [clojure.string :as str]))
 
 
-;; ## Elastic Agent Profiles
+;; ## Agent Profiles
 
 (def profile-metadata
   "Schema for an elastic agent profile map."
-  [{:key "cpu"
+  [{:key :cpu
     :metadata {:required true, :secure false}}
-   {:key "ram"
+   {:key :ram
     :metadata {:required true, :secure false}}
-   {:key "disk"
+   {:key :disk
     :metadata {:required false, :secure false}}])
+
+
+(defn- migrate-profile-properties
+  "Migrate an existing map of profile settings to the latest representation."
+  [properties]
+  (into {}
+        (remove (comp str/blank? val))
+        {:cpu (:cpu properties)
+         :ram (:ram properties)
+         :disk (:disk properties)}))
 
 
 (defn migrate-profile
   "Migrate an existing map of profile settings to the latest representation."
   [old]
-  (let [properties (:properties old)
-        properties' (into {}
-                          (remove (comp str/blank? val))
-                          {:cpu (or (:cpu properties) (:agent_cpu properties))
-                           :ram (or (:ram properties) (:agent_ram properties))
-                           :disk (or (:disk properties) (:agent_disk properties))})]
-    (assoc old :properties properties')))
+  (update old :properties migrate-profile-properties))
 
 
 (defn validate-profile

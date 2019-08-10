@@ -8,21 +8,34 @@
 
 (def profile-metadata
   "Schema for a cluster profile map."
-  [{:key "aurora_url"
+  [{:key :aurora_url
     :metadata {:required true, :secure false}}
-   {:key "aurora_cluster"
+   {:key :aurora_cluster
     :metadata {:required true, :secure false}}
-   {:key "aurora_role"
+   {:key :aurora_role
     :metadata {:required true, :secure false}}
-   {:key "aurora_env"
-    :metadata {:required true, :secure false}}])
+   {:key :aurora_env
+    :metadata {:required true, :secure false}}
+   {:key :agent_source_url
+    :metadata {:required false, :secure false}}])
+
+
+(defn- migrate-profile-properties
+  "Migrate an existing map of profile settings to the latest representation."
+  [properties]
+  (into {}
+        (remove (comp str/blank? val))
+        {:aurora_url (:aurora_url properties)
+         :aurora_cluster (:aurora_cluster properties)
+         :aurora_role (:aurora_role properties)
+         :aurora_env (:aurora_env properties)
+         :agent_source_url (:agent_source_url properties)}))
 
 
 (defn migrate-profile
   "Migrate an existing map of profile settings to the latest representation."
   [old]
-  ;; TODO: migrate
-  old)
+  (update old :properties migrate-profile-properties))
 
 
 (defn validate-profile
