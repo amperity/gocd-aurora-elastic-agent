@@ -336,28 +336,13 @@
 ;; case the same agent can be used for another job configuration.
 (defmethod handle-request "cd.go.elastic-agent.job-completion"
   [state _ data]
-  (log/debug "job-completion: %s" (pr-str data))
-  ;; {
-  ;;   "elastic_agent_id": "GoCD18efbeef995e40f688cd92dc22a4d332",
-  ;;   "elastic_agent_profile_properties": {
-  ;;     "Image": "gocd/gocd-agent-alpine-3.5:v18.1.0",
-  ;;     "MaxMemory": "https://docker-uri/"
-  ;;   },
-  ;;   "cluster_profile_properties": {
-  ;;     "Image": "DockerURI",
-  ;;     "MaxMemory": "500Mb"
-  ;;   },
-  ;;   "job_identifier": {
-  ;;     "job_id": 100,
-  ;;     "job_name": "test-job",
-  ;;     "pipeline_counter": 1,
-  ;;     "pipeline_label": "build",
-  ;;     "pipeline_name": "build",
-  ;;     "stage_counter": "1",
-  ;;     "stage_name": "test-stage"
-  ;;   }
-  ;; }
-  ;; TODO: implement job-completion logic
-  ;; - Mark the agent as idle in our internal state? May not matter if we're
-  ;;   always refreshing.
-  true)
+  (log/info "job-completion: %s" (pr-str data))
+  (let [agent-id (:elastic_agent_id data)
+        agent-profile (:elastic_agent_profile_properties data)
+        cluster-profile (:cluster_profile_properties data)
+        gocd-job (:job_identifier data)]
+    (swap! state update-in [:agents agent-id] assoc
+           :cluster (:aurora_cluster cluster-profile)
+           :resources (agent/profile->resources agent-profile)
+           :last-active (Instant/now))
+    true))
