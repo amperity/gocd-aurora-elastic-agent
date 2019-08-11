@@ -21,11 +21,11 @@ uberjar: $(uberjar_path)
 $(plugin_path): $(uberjar_path)
 	@mkdir -p target/plugin
 	cd target/plugin; jar xf ../../$(uberjar_path)
-	@#mkdir -p target/plugin/lib
-	@#cd target/plugin/lib; jar cf clojure.jar -C .. clojure
-	@#cd target/plugin/lib; jar cf deps.jar -C .. org
-	@#cd target/plugin; jar cf $(plugin_name) META-INF plugin.xml amperity lib
+	rm target/plugin/*.class
+	rm target/plugin/org/apache/thrift/transport/TFileTransport*.class
+	rm -r target/plugin/mozilla
 	find target/plugin -type f -path 'target/plugin/clojure/repl*' -delete
+	find target/plugin -type d -empty -delete
 	cd target/plugin; jar cmf META-INF/MANIFEST.MF $(plugin_name) plugin.xml amperity clojure com org
 
 plugin: $(plugin_path)
