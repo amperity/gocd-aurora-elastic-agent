@@ -53,6 +53,18 @@
      :agents {}}))
 
 
+(comment
+  {:clusters
+   {"aws-dev"
+    {:quota {,,,}}}
+
+   :agents
+   {"aws-dev/www-data/prod/test-agent-0"
+    {:environment "build"
+     :resources {:cpu 1.0, :ram 1024, :disk 1024}
+     :last-active #inst "2019-08-10T14:16:00Z"}}})
+
+
 
 ;; ## Request Handling
 
@@ -275,18 +287,38 @@
 (defmethod handle-request "cd.go.elastic-agent.server-ping"
   [state _ data]
   (log/info "server-ping: %s" (pr-str data))
-  (log/info "plugin state: %s" (pr-str @state))
+  (log/info "plugin state: %s" (pr-str (dissoc @state :app-accessor)))
   (let [cluster-profiles (:all_cluster_profile_properties data)
         app-accessor (:app-accessor @state)
-        gocd-agents (list-gocd-agents app-accessor)]
-    (log/debug "Checking %d clusters" (count cluster-profiles))
-    (doseq [cluster-profile cluster-profiles]
-      (log/info "Checking cluster: %s" (pr-str cluster-profile))
+        gocd-agents (list-gocd-agents app-accessor)
+        gocd-agent-ids (into #{} (map :agent_id) gocd-agents)]
+    (log/debug "Checking %d aurora clusters" (count cluster-profiles))
+    (doseq [cluster-profile cluster-profiles
+            :let [aurora-url (:aurora_url cluster-profile)]]
+      (log/info "Checking aurora cluster: %s" (pr-str cluster-profile))
       ;; TODO: update cluster quota information
-      ,,,)
-    (log/debug "Checking %d agents" (count gocd-agents))
+      ,,,
+      ;; Look for untracked agents.
+      (let [aurora-agents (aurora/list-agents
+                            state aurora-url
+                            (:aurora_role cluster-profile)
+                            (:aurora_env cluster-profile))]
+        (log/info "Found aurora agents: %s" (pr-str aurora-agents))
+        (doseq [job-summary aurora-agents]
+          (let [agent-id (agent/form-id job-summary)]
+            (when (and (not (contains? gocd-agent-ids agent-id))
+                       (or (pos-int? (get-in job-summary [:states :active]))
+                           (pos-int? (get-in job-summary [:states :pending]))))
+              (let [aurora-agent (aurora/get-agent state aurora-url agent-id)
+                    ^Instant task-time (last (keep :time (:events aurora-agent)))]
+                (when (and (= :running (:status aurora-agent))
+                           task-time
+                           (.isBefore task-time (.minusSeconds (Instant/now) 300)))
+                  (log/warn "Killing orphaned agent %s" agent-id)
+                  (aurora/kill-agent! state aurora-url agent-id))))))))
+    (log/debug "Checking %d gocd agents" (count gocd-agents))
     (doseq [gocd-state gocd-agents]
-      (log/info "Checking agent: %s" (pr-str gocd-state))
+      (log/info "Checking gocd agent: %s" (pr-str gocd-state))
       (let [agent-id (:agent_id gocd-state)
             agent-state (:agent_state gocd-state)
             build-state (:build_state gocd-state)
@@ -350,15 +382,16 @@
 
           ;; Agent is disabled and quiescent, see if it it has been terminated.
           :else
-          (let [agent-task (aurora/get-agent state aurora-url agent-id)]
-            (if (contains? #{:active :pending} (:status agent-task))
+          (let [agent-task (aurora/get-agent state aurora-url agent-id)
+                status (:status agent-task :unknown)]
+            (if (contains? #{:active :pending} status)
               ;; Kill agent.
               (do
-                (log/info "Killing retired agent %s" agent-id)
+                (log/info "Killing retired %s agent %s" (name status) agent-id)
                 (aurora/kill-agent! state aurora-url agent-id))
               ;; Agent has shut down probably.
               (do
-                (log/info "Removing retired agent %s" agent-id)
+                (log/info "Removing retired %s agent %s" (name status) agent-id)
                 (delete-gocd-agents app-accessor #{agent-id})
                 (swap! state update :agents dissoc agent-id))))))
     true))
@@ -370,13 +403,13 @@
   (loop [agent-num 0]
     (let [agent-name (str agent-prefix "-agent-" agent-num)
           agent-id (agent/form-id
-                       (:aurora_cluster cluster-profile)
-                       (:aurora_role cluster-profile)
-                       (:aurora_env cluster-profile)
-                       agent-name)]
+                     (:aurora_cluster cluster-profile)
+                     (:aurora_role cluster-profile)
+                     (:aurora_env cluster-profile)
+                     agent-name)]
       (if (contains? (:agents @state) agent-id)
         (recur (inc agent-num))
-        agent-id))))
+        agent-name))))
 
 
 (defn- launch-agent!
@@ -479,15 +512,17 @@
         agent-info (:agent data)
         agent-id (:agent_id agent-info)
         gocd-job (:job_identifier data)
-        job-id (str (:pipeline_name data) "/"
-                    (:pipeline_counter data) "/"
-                    (:stage_name data) "/"
-                    (:stage_counter data) "/"
-                    (:job_name data))]
+        job-id (str (:pipeline_name gocd-job) "/"
+                    (:pipeline_counter gocd-job) "/"
+                    (:stage_name gocd-job) "/"
+                    (:stage_counter gocd-job) "/"
+                    (:job_name gocd-job))]
     (->
       (if-let [resources (get-in @state [:agents agent-id :resources])]
         ;; Determine if job requirements are satisfied by the agent.
-        (agent/resource-satisfied? agent-profile resources)
+        (agent/resource-satisfied?
+          (agent/profile->resources agent-profile)
+          resources)
         ;; No resources recorded for this agent, don't assign work to it.
         false)
       (boolean)
