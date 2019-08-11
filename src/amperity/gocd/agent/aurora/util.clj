@@ -3,15 +3,19 @@
   (:require
     [clojure.java.io :as io]
     [clojure.string :as str]
-    [clojure.walk :as walk])
+    [clojure.walk :as walk]
+    [clojure.xml :as xml])
   (:import
     com.google.gson.Gson
     java.util.Base64))
 
 
-;; TODO: read from plugin.xml ?
-(def ^:const plugin-id
-  "amperity.gocd.agent.aurora")
+(def plugin-id
+  "Unique plugin identifier string."
+  (-> (io/resource "plugin.xml")
+      (io/input-stream)
+      (xml/parse)
+      (get-in [:attrs :id])))
 
 
 (def ^:private ^Gson gson
