@@ -90,7 +90,10 @@
     (catch UnhandledRequestTypeException ex
       (throw ex))
     (catch Exception ex
-      (log/errorx ex "Failed to process %s plugin request" (.requestName request))
+      (log/errorx ex "Failed to process %s plugin request%s"
+                  (.requestName request)
+                  (when-let [data (not-empty (ex-data ex))]
+                    (str " " (pr-str data))))
       (DefaultGoPluginApiResponse/error (.getMessage ex)))))
 
 

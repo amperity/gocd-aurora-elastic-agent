@@ -105,14 +105,11 @@
         task-states {:active (.getActiveTaskCount stats)
                      :failed (.getFailedTaskCount stats)
                      :finished (.getFinishedTaskCount stats)
-                     :pending (.getPendingTaskCount stats)}
-        state (or (first (filter (comp pos-int? task-states)
-                                 [:active :pending :failed :finished]))
-                  :unknown)]
+                     :pending (.getPendingTaskCount stats)}]
     {:aurora-role (.getRole job-key)
      :aurora-env (.getEnvironment job-key)
      :agent-name (.getName job-key)
-     :state state}))
+     :states task-states}))
 
 
 (defn- TaskEvent->map
@@ -184,7 +181,9 @@
       (throw (ex-info (str call-name " returned unsuccessful response code: "
                            response-code)
                       {:code response-code
-                       :errors (vec (.getDetails response))})))))
+                       :errors (into []
+                                     (map #(.getMessage ^ResponseDetail %))
+                                     (.getDetails response))})))))
 
 
 (defmacro ^:private with-client
