@@ -4,13 +4,13 @@
     [amperity.gocd.agent.aurora.agent :as agent]
     [amperity.gocd.agent.aurora.client :as aurora]
     [amperity.gocd.agent.aurora.cluster :as cluster]
-    [amperity.gocd.agent.aurora.job :as job]
+    [amperity.gocd.agent.aurora.lifecycle :as lifecycle]
     [amperity.gocd.agent.aurora.logging :as log]
+    [amperity.gocd.agent.aurora.server :as server]
     [amperity.gocd.agent.aurora.util :as u]
     [clojure.java.io :as io]
     [clojure.string :as str])
   (:import
-    com.google.gson.Gson
     (com.thoughtworks.go.plugin.api
       GoApplicationAccessor
       GoPluginIdentifier)
@@ -27,25 +27,15 @@
 
 ;; ## State Initialization
 
-(def ^:private plugin-identifier
-  "Identifier for the type of plugin and compatible API versions."
-  (GoPluginIdentifier. "elastic-agent" ["5.0"]))
-
-
 (defn initialize
   "Initialize the plugin state, returning an initial value for the state atom."
-  [logger ^GoApplicationAccessor app-accessor]
+  [logger app-accessor]
   (alter-var-root #'log/logger (constantly logger))
-  (let [req (DefaultGoApiRequest. "go.processor.server-info.get" "1.0" plugin-identifier)
-        res (.submit app-accessor req)
-        server-info (when (= 200 (.responseCode res))
-                      (u/json-decode-map (.responseBody res)))
+  (let [server-info (server/get-server-info app-accessor)
         server-url (if-let [site-url (:site_url server-info)]
                      (str site-url "/go")
                      "http://localhost:8153/go")]
-    (log/info "Got server-info status %s and body: %s"
-              (.responseCode res)
-              (.responseBody res))
+    (log/debug "Got server-info: %s" (pr-str server-info))
     {:app-accessor app-accessor
      :server-url server-url
      :clients {}
@@ -230,95 +220,27 @@
 
 ;; ## Agent Lifecycle
 
-;; Will need an Aurora client per stack; lock on client access.
-;; Need to track what agents are alive and which are currently occupied.
-;; Need a matching algorithm to compare an agent to a profile requirement.
-;; Need the interop to create a new agent service; probably want to run under
-;; `{{cluster}}/{{role}}/prod/{{type}}-agent-{{id}}` so an example `aws-dev/www-data/prod/test-agent-0`
-
-
-(defn- list-gocd-agents
-  "List the GoCD agent registrations for this plugin."
-  [^GoApplicationAccessor app-accessor]
-  (let [req (DefaultGoApiRequest. "go.processor.elastic-agents.list-agents" "1.0" plugin-identifier)
-        res (.submit app-accessor req)]
-    (when (not= 200 (.responseCode res))
-      (throw (ex-info (format "Failed to list GoCD agents (%d): %s"
-                              (.responseCode res)
-                              (.responseBody res))
-                      {})))
-    (u/json-decode-vec (.responseBody res))))
-
-
-(defn- disable-gocd-agents
-  "Disable agents in GoCD."
-  [^GoApplicationAccessor app-accessor agent-ids]
-  (let [agents (mapv (partial array-map :agent_id) agent-ids)
-        req (doto (DefaultGoApiRequest. "go.processor.elastic-agents.disable-agents" "1.0" plugin-identifier)
-              (.setRequestBody (u/json-encode agents)))
-        res (.submit app-accessor req)]
-    (when (not= 200 (.responseCode res))
-      (throw (ex-info (format "Failed to disable GoCD agents (%d): %s"
-                              (.responseCode res)
-                              (.responseBody res))
-                      {})))
-    true))
-
-
-(defn- delete-gocd-agents
-  "Delete agents in GoCD. Agents must be disabled first."
-  [^GoApplicationAccessor app-accessor agent-ids]
-  (let [agents (mapv (partial array-map :agent_id) agent-ids)
-        req (doto (DefaultGoApiRequest. "go.processor.elastic-agents.delete-agents" "1.0" plugin-identifier)
-              (.setRequestBody (u/json-encode agents)))
-        res (.submit app-accessor req)]
-    (when (not= 200 (.responseCode res))
-      (throw (ex-info (format "Failed to delete GoCD agents (%d): %s"
-                              (.responseCode res)
-                              (.responseBody res))
-                      {})))
-    true))
-
-
 ;; Each elastic agent plugin will receive a periodic signal at regular
 ;; intervals for it to perform any cleanup operations. Plugins may use this
 ;; message to disable and/or terminate agents at their discretion.
 ;; NOTE: calls occur on multiple threads
 (defmethod handle-request "cd.go.elastic-agent.server-ping"
   [state _ data]
-  (log/info "server-ping: %s" (pr-str data))
-  (log/info "plugin state: %s" (pr-str (dissoc @state :app-accessor)))
+  (log/debug "server-ping: %s" (pr-str data))
+  (log/info "plugin clusters: %s" (pr-str (:clusters @state)))
+  (log/info "plugin agents: %s" (pr-str (:agents @state)))
   (let [cluster-profiles (:all_cluster_profile_properties data)
         app-accessor (:app-accessor @state)
-        gocd-agents (list-gocd-agents app-accessor)
-        gocd-agent-ids (into #{} (map :agent_id) gocd-agents)]
-    (log/debug "Checking %d aurora clusters" (count cluster-profiles))
-    (doseq [cluster-profile cluster-profiles
-            :let [aurora-url (:aurora_url cluster-profile)]]
-      (log/info "Checking aurora cluster: %s" (pr-str cluster-profile))
-      ;; TODO: update cluster quota information
-      ,,,
-      ;; Look for untracked agents.
-      (let [aurora-agents (aurora/list-agents
-                            state aurora-url
-                            (:aurora_role cluster-profile)
-                            (:aurora_env cluster-profile))]
-        (log/info "Found aurora agents: %s" (pr-str aurora-agents))
-        (doseq [job-summary aurora-agents]
-          (let [agent-id (agent/form-id job-summary)]
-            (when (and (not (contains? gocd-agent-ids agent-id))
-                       (or (pos-int? (get-in job-summary [:states :active]))
-                           (pos-int? (get-in job-summary [:states :pending]))))
-              (let [aurora-agent (aurora/get-agent state aurora-url agent-id)
-                    ^Instant task-time (last (keep :time (:events aurora-agent)))]
-                (when (and (= :running (:status aurora-agent))
-                           task-time
-                           (.isBefore task-time (.minusSeconds (Instant/now) 300)))
-                  (log/warn "Killing orphaned agent %s" agent-id)
-                  (aurora/kill-agent! state aurora-url agent-id))))))))
-    (log/debug "Checking %d gocd agents" (count gocd-agents))
+        gocd-agents (server/list-agents app-accessor)]
+    ;; Check on the status of each cluster.
+    (doseq [cluster-profile cluster-profiles]
+      (log/debug "Checking aurora cluster: %s" (pr-str cluster-profile))
+      (lifecycle/kill-orphaned-agents! state cluster-profile gocd-agents)
+      (lifecycle/update-cluster-quota state cluster-profile))
+    ;; Check on the status of each agent.
     (doseq [gocd-state gocd-agents]
-      (log/info "Checking gocd agent: %s" (pr-str gocd-state))
+      (log/debug "Checking gocd agent: %s" (pr-str gocd-state))
+      ;; TODO: refactor
       (let [agent-id (:agent_id gocd-state)
             agent-state (:agent_state gocd-state)
             build-state (:build_state gocd-state)
@@ -332,36 +254,14 @@
             ^Instant last-active (get-in @state [:agents agent-id :last-active])
             ;; TODO: make this configurable?
             ttl-seconds 60]
-        ;; Observed values:
-        ;; | agent_state | build_state | config_state |
-        ;; |-------------|-------------|--------------|
-        ;; | Missing     | Unknown     | Enabled      |
-        ;; | LostContact | Unknown     | Enabled      |
-        ;; | LostContact | Unknown     | Disabled     |
-        ;; | Idle        | Idle        | Enabled      |
-        ;; | Building    | Building    | Enabled      |
         (cond
           ;; Agent is in a bad state, try to clean it up.
           (contains? #{"Missing" "LostContact"} agent-state)
-          (let [agent-task (aurora/get-agent state aurora-url agent-id)]
+          (do
             (when enabled?
-              (log/info "Disabling agent %s in state %s" agent-id agent-state)
-              (disable-gocd-agents app-accessor #{agent-id}))
-            (if (contains? #{:active :pending} (:status agent-task))
-              ;; Kill agent.
-              (do
-                (log/info "Killing %s agent %s in state %s"
-                          (name (:status agent-task))
-                          agent-id
-                          agent-state)
-                (aurora/kill-agent! state aurora-url agent-id))
-              ;; Agent has shut down probably.
-              (do
-                (log/info "Removing %s agent %s"
-                          (some-> (:status agent-task) name)
-                          agent-id)
-                (delete-gocd-agents app-accessor #{agent-id})
-                (swap! state update :agents dissoc agent-id))))
+              (log/info "Disabling agent %s (%s)" agent-id agent-state)
+              (server/disable-agents! app-accessor #{agent-id}))
+            (lifecycle/terminate-agent! state aurora-url agent-id agent-state))
 
           ;; Healthy agent.
           enabled?
@@ -369,12 +269,12 @@
             (if (.isAfter (Instant/now) (.plusSeconds last-active ttl-seconds))
               (do
                 (log/info "Retiring idle agent %s" agent-id)
-                (disable-gocd-agents app-accessor #{agent-id}))
+                (server/disable-agents! app-accessor #{agent-id}))
               (log/info "Agent %s is healthy" agent-id))
             ;; Update last-active timestamp.
             (do
               (log/info "Updating last-active timestamp for agent %s" agent-id)
-              (swap! state assoc-in [:agents agent-id :last-active] (Instant/now)))))
+              (swap! state assoc-in [:agents agent-id :last-active] (Instant/now))))
 
           ;; Disabled agent is still busy, wait for it to drain.
           (not idle?)
@@ -382,72 +282,8 @@
 
           ;; Agent is disabled and quiescent, see if it it has been terminated.
           :else
-          (let [agent-task (aurora/get-agent state aurora-url agent-id)
-                status (:status agent-task :unknown)]
-            (if (contains? #{:active :pending} status)
-              ;; Kill agent.
-              (do
-                (log/info "Killing retired %s agent %s" (name status) agent-id)
-                (aurora/kill-agent! state aurora-url agent-id))
-              ;; Agent has shut down probably.
-              (do
-                (log/info "Removing retired %s agent %s" (name status) agent-id)
-                (delete-gocd-agents app-accessor #{agent-id})
-                (swap! state update :agents dissoc agent-id))))))
+          (lifecycle/terminate-agent! state aurora-url agent-id "retired"))))
     true))
-
-
-(defn- next-agent-name
-  "Determine the next available agent name given the running agents."
-  [state cluster-profile agent-prefix]
-  (loop [agent-num 0]
-    (let [agent-name (str agent-prefix "-agent-" agent-num)
-          agent-id (agent/form-id
-                     (:aurora_cluster cluster-profile)
-                     (:aurora_role cluster-profile)
-                     (:aurora_env cluster-profile)
-                     agent-name)]
-      (if (contains? (:agents @state) agent-id)
-        (recur (inc agent-num))
-        agent-name))))
-
-
-(defn- launch-agent!
-  "Launch a new agent."
-  [state cluster-profile agent-profile gocd-auto-register-key gocd-environment]
-  (locking state
-    ;; TODO: configurable prefix
-    (let [aurora-url (:aurora_url cluster-profile)
-          agent-name (next-agent-name state cluster-profile "test")
-          agent-id (agent/form-id
-                     (:aurora_cluster cluster-profile)
-                     (:aurora_role cluster-profile)
-                     (:aurora_env cluster-profile)
-                     agent-name)
-          source-url (if (str/blank? (:agent_source_url cluster-profile))
-                       cluster/default-agent-source-url
-                       (:agent_source_url cluster-profile))
-          agent-task (job/agent-task
-                       agent-name
-                       {:server-url (:server-url @state)
-                        :agent-source-url source-url
-                        :auto-register-hostname agent-name
-                        :auto-register-environment gocd-environment
-                        :auto-register-key gocd-auto-register-key
-                        :elastic-plugin-id u/plugin-id
-                        :elastic-agent-id agent-id})]
-      (aurora/launch-agent!
-        state
-        aurora-url
-        cluster-profile
-        agent-profile
-        agent-name
-        agent-task)
-      (swap! state assoc-in [:agents agent-id]
-             {:environment gocd-environment
-              :resources (agent/profile->resources agent-profile)
-              :last-active (Instant/now)})
-      agent-id)))
 
 
 ;; This message is a request to the plugin to create an agent for a job
@@ -461,7 +297,7 @@
         gocd-job (:job_identifier data)
         app-accessor (:app-accessor @state)
         state-agents (:agents @state)
-        gocd-agents (list-gocd-agents app-accessor)
+        gocd-agents (server/list-agents app-accessor)
         candidates (into []
                          (filter
                            (fn candidate?
@@ -472,14 +308,15 @@
                                     (= "Idle" (:agent_state gocd-agent))
                                     (= (:environment data) (:environment agent-state))
                                     (agent/resource-satisfied?
-                                      agent-profile
+                                      (agent/profile->resources agent-profile)
                                       (:resources agent-state))))))
                          gocd-agents)]
     (cond
       ;; Some agents are already available to handle the work.
       (seq candidates)
-      (log/info "Not launching new agent because %d candidates are available: %s"
+      (log/info "Not launching new agent because %d candidates are available in environment %s: %s"
                 (count candidates)
+                (:environment data)
                 (str/join " " candidates))
 
       ;; TODO: check cluster quota
@@ -489,7 +326,7 @@
                 "...")
 
       :else
-      (launch-agent!
+      (lifecycle/launch-agent!
         state
         cluster-profile
         agent-profile
@@ -513,28 +350,21 @@
         agent-id (:agent_id agent-info)
         gocd-job (:job_identifier data)
         job-id (str (:pipeline_name gocd-job) "/"
-                    (:pipeline_counter gocd-job) "/"
+                    (:pipeline_label gocd-job) "/"
                     (:stage_name gocd-job) "/"
                     (:stage_counter gocd-job) "/"
-                    (:job_name gocd-job))]
-    (->
-      (if-let [resources (get-in @state [:agents agent-id :resources])]
-        ;; Determine if job requirements are satisfied by the agent.
-        (agent/resource-satisfied?
-          (agent/profile->resources agent-profile)
-          resources)
-        ;; No resources recorded for this agent, don't assign work to it.
-        false)
-      (boolean)
-      ;; DEBUG
-      (as-> decision
-        (do (log/info "Decided %s assign job %s to agent %s"
-                      (if decision "to" "not to")
-                      job-id
-                      agent-id)
-            decision))
-      (str)
-      (DefaultGoPluginApiResponse/success))))
+                    (:job_name gocd-job))
+        decision (if-let [resources (get-in @state [:agents agent-id :resources])]
+                   ;; Determine if job requirements are satisfied by the agent.
+                   (agent/resource-satisfied?
+                     (agent/profile->resources agent-profile)
+                     resources)
+                   ;; No resources recorded for this agent, don't assign work to it.
+                   false)]
+    (when decision
+      (log/info "Decided to assign job %s to agent %s" job-id agent-id)
+      (swap! state assoc-in [:agents agent-id :last-active] (Instant/now)))
+    (DefaultGoPluginApiResponse/success (str (boolean decision)))))
 
 
 ;; The intent on this message is to notify the plugin on completion of the job.
@@ -547,7 +377,8 @@
         agent-profile (:elastic_agent_profile_properties data)
         cluster-profile (:cluster_profile_properties data)
         gocd-job (:job_identifier data)]
-    (swap! state update-in [:agents agent-id] assoc
-           :resources (agent/profile->resources agent-profile)
-           :last-active (Instant/now))
+    (swap! state
+           assoc-in [:agents agent-id :last-active]
+           ;; Add some slack here to give the agent time to start.
+           (.plusSeconds (Instant/now) 120))
     true))

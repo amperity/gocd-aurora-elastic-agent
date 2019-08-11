@@ -268,7 +268,7 @@
              :agent-name agent-name))))
 
 
-(defn launch-agent!
+(defn create-agent!
   "Launch a new agent job in Aurora."
   [state
    url
