@@ -1,6 +1,7 @@
 (ns amperity.gocd.agent.aurora.agent
   "Agent profile definition and functions."
   (:require
+    [amperity.gocd.agent.aurora.logging :as log]
     [clojure.string :as str]))
 
 
@@ -8,28 +9,85 @@
 
 (def profile-metadata
   "Schema for an elastic agent profile map."
-  [{:key :cpu
+  ;; TODO: wait for boot period?
+  ;; TODO: stale TTL?
+  [{:key :agent_tag
+    :metadata {:required true, :secure false}}
+   ;; Agent Resources
+   {:key :cpu
     :metadata {:required true, :secure false}}
    {:key :ram
     :metadata {:required true, :secure false}}
    {:key :disk
+    :metadata {:required true, :secure false}}
+   ;; Agent Setup
+   {:key :fetch_url
+    :metadata {:required false, :secure false}}
+   {:key :init_script
     :metadata {:required false, :secure false}}])
 
 
 (defn- migrate-profile-properties
   "Migrate an existing map of profile settings to the latest representation."
   [properties]
-  (into {}
-        (remove (comp str/blank? val))
-        {:cpu (:cpu properties)
-         :ram (:ram properties)
-         :disk (:disk properties)}))
+  {:agent_tag (:agent_tag properties)
+   :cpu (:cpu properties)
+   :ram (:ram properties)
+   :disk (:disk properties)
+   :fetch_url (:fetch_url properties)
+   :init_script (:init_script properties)})
 
 
 (defn migrate-profile
   "Migrate an existing map of profile settings to the latest representation."
   [old]
-  (update old :properties migrate-profile-properties))
+  (let [old-props (:properties old)
+        new-props (migrate-profile-properties old-props)]
+    (when (not= old-props new-props)
+      (log/info "Migrated profile %s: %s => %s"
+                (pr-str old)
+                (pr-str old-props)
+                (pr-str new-props)))
+    (assoc old :properties new-props)))
+
+
+(defn- validate-number
+  "Validate a numeric setting. Returns an error map or nil if the
+  setting is valid."
+  [field-key label value parse min-val max-val]
+  (->
+    (try
+      (let [value (cond
+                    (number? value) (double value)
+                    (str/blank? value) nil
+                    :else (parse value))]
+         (cond
+           (nil? value)
+           (str label " is required")
+
+           (< value min-val)
+           (str label " must be at least " min-val)
+
+           (< max-val value)
+           (str label " must be at most " max-val)))
+      (catch Exception ex
+        (str "Could not parse " label " as a number")))
+    (as-> message
+      (when message
+        {:key field-key
+         :message message}))))
+
+
+(defn- validate-float
+  "Validate a floating-point number."
+  [field-key label value min-val max-val]
+  (validate-number field-key label value #(Double/parseDouble %) min-val max-val))
+
+
+(defn- validate-int
+  "Validate an integer number."
+  [field-key label value min-val max-val]
+  (validate-number field-key label value #(Integer/parseInt %) min-val max-val))
 
 
 (defn validate-profile
@@ -39,34 +97,13 @@
   (into
     []
     (remove nil?)
-    [(let [cpu (:cpu settings)]
-       (if (str/blank? cpu)
-         {:key :cpu
-          :message "CPU resource allocation must be provided"}
-         (try
-           (Double/parseDouble (:cpu settings))
-           nil
-           (catch Exception ex
-             {:key :cpu
-              :message "Could not parse cpu allocation as a floating-point number"}))))
-     (let [ram (:ram settings)]
-       (if (str/blank? ram)
-         {:key :ram
-          :message "Memory resource allocation must be provided"}
-         (try
-           (Integer/parseInt ram)
-           nil
-           (catch Exception ex
-             {:key :ram
-              :message "Could not parse memory allocation as an integer"}))))
-     (let [disk (:disk settings)]
-       (when-not (str/blank? disk)
-         (try
-           (Integer/parseInt disk)
-           nil
-           (catch Exception ex
-             {:key :disk
-              :message "Could not parse disk allocation as an integer"}))))]))
+    [(let [agent-tag (:agent_tag settings)]
+       (when (str/blank? agent-tag)
+         {:key :agent_tag
+          :message "Agent tag prefix is required"}))
+     (validate-float :cpu "cpu allocation" (:cpu settings) 0.1 32.0)
+     (validate-int :ram "memory allocation" (:ram settings) 256 16384)
+     (validate-int :disk "disk allocation" (:disk settings) 256 16384)]))
 
 
 

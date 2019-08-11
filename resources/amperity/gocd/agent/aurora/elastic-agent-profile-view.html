@@ -1,19 +1,49 @@
 <!-- Ensure that the keys here are also declared in the get-elastic-agent-profile-metadata response. -->
-
 <div class="form_item_block">
-  <label>CPU:<span class='asterix'>*</span></label>
-  <input type="text" ng-model="cpu" ng-required="true" placeholder="1.00"/>
-  <span class="form_error" ng-show="GOINPUTNAME[cpu].$error.server">{{GOINPUTNAME[cpu].$error.server}}</span>
+  <label title="This tag is used to prefix agent job names in Aurora.">Job Tag:<span class='asterix'>*</span></label>
+  <input type="text" ng-model="agent_tag" ng-required="true" placeholder="build"/>
+  <span class="form_error" ng-show="GOINPUTNAME[agent_tag].$error.server">{{GOINPUTNAME[agent_tag].$error.server}}</span>
 </div>
 
-<div class="form_item_block">
-  <label>Memory (MB):<span class='asterix'>*</span></label>
-  <input type="text" ng-model="ram" ng-required="true" placeholder="512"/>
-  <span class="form_error" ng-show="GOINPUTNAME[ram].$error.server">{{GOINPUTNAME[ram].$error.server}}</span>
-</div>
+<fieldset>
+  <legend style="font-size: 18px; margin-top: 15px;">Agent Resources</legend>
+  <p>Job resources to request for each agent of this type.</p>
 
-<div class="form_item_block">
-  <label>Disk (MB):</label>
-  <input type="text" ng-model="disk" ng-required="false" placeholder="1024"/>
-  <span class="form_error" ng-show="GOINPUTNAME[disk].$error.server">{{GOINPUTNAME[disk].$error.server}}</span>
+  <div class="form_item_block">
+    <label>CPU:<span class='asterix'>*</span></label>
+    <input type="text" ng-model="cpu" ng-required="true" placeholder="1.0"/>
+    <span class="form_error" ng-show="GOINPUTNAME[cpu].$error.server">{{GOINPUTNAME[cpu].$error.server}}</span>
+  </div>
+
+  <div class="form_item_block">
+    <label>Memory (MB):<span class='asterix'>*</span></label>
+    <input type="text" ng-model="ram" ng-required="true" placeholder="1024"/>
+    <span class="form_error" ng-show="GOINPUTNAME[ram].$error.server">{{GOINPUTNAME[ram].$error.server}}</span>
+  </div>
+
+  <div class="form_item_block">
+    <label>Disk (MB):<span class='asterix'>*</span></label>
+    <input type="text" ng-model="disk" ng-required="true" placeholder="1024"/>
+    <span class="form_error" ng-show="GOINPUTNAME[disk].$error.server">{{GOINPUTNAME[disk].$error.server}}</span>
 </div>
+</fieldset>
+
+<fieldset>
+  <legend style="font-size: 18px; margin-top: 15px;">Agent Setup</legend>
+  <p>
+    Optional settings to bootstrap the agent with additional files and
+    configuration not available on the host executor.
+  </p>
+
+  <div class="form_item_block">
+    <label title="If set, the agent will fetch and extract the file at this URL into the sandbox root.">Fetch URL:</label>
+    <input type="url" ng-model="fetch_url" ng-required="false"/>
+    <span class="form_error" ng-show="GOINPUTNAME[fetch_url].$error.server">{{GOINPUTNAME[fetch_url].$error.server}}</span>
+  </div>
+
+  <div class="form_item_block">
+    <label title="A set of shell commands to run in the agent's sandbox before starting it.">Initialization Script:</label>
+    <textarea type="text" ng-model="init_script" rows="7"></textarea>
+    <span class="form_error" ng-show="GOINPUTNAME[init_script].$error.server">{{ GOINPUTNAME[init_script].$error.server}}</span>
+  </div>
+</fieldset>
