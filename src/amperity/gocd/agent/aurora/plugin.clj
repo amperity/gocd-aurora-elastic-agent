@@ -238,51 +238,9 @@
       (lifecycle/kill-orphaned-agents! state cluster-profile gocd-agents)
       (lifecycle/update-cluster-quota state cluster-profile))
     ;; Check on the status of each agent.
-    (doseq [gocd-state gocd-agents]
-      (log/debug "Checking gocd agent: %s" (pr-str gocd-state))
-      ;; TODO: refactor
-      (let [agent-id (:agent_id gocd-state)
-            agent-state (:agent_state gocd-state)
-            build-state (:build_state gocd-state)
-            config-state (:config_state gocd-state)
-            enabled? (= "Enabled" config-state)
-            idle? (= "Idle" agent-state)
-            aurora-cluster (:aurora-cluster (agent/parse-id agent-id))
-            cluster-profile (first (filter #(= aurora-cluster (:aurora_cluster %))
-                                           cluster-profiles))
-            aurora-url (:aurora_url cluster-profile)
-            ^Instant last-active (get-in @state [:agents agent-id :last-active])
-            ;; TODO: make this configurable?
-            ttl-seconds 60]
-        (cond
-          ;; Agent is in a bad state, try to clean it up.
-          (contains? #{"Missing" "LostContact"} agent-state)
-          (do
-            (when enabled?
-              (log/info "Disabling agent %s (%s)" agent-id agent-state)
-              (server/disable-agents! app-accessor #{agent-id}))
-            (lifecycle/terminate-agent! state aurora-url agent-id agent-state))
-
-          ;; Healthy agent.
-          enabled?
-          (if (and idle? last-active)
-            (if (.isAfter (Instant/now) (.plusSeconds last-active ttl-seconds))
-              (do
-                (log/info "Retiring idle agent %s" agent-id)
-                (server/disable-agents! app-accessor #{agent-id}))
-              (log/info "Agent %s is healthy" agent-id))
-            ;; Update last-active timestamp.
-            (do
-              (log/info "Updating last-active timestamp for agent %s" agent-id)
-              (swap! state assoc-in [:agents agent-id :last-active] (Instant/now))))
-
-          ;; Disabled agent is still busy, wait for it to drain.
-          (not idle?)
-          (log/info "Waiting for disabled agent %s to drain" agent-id)
-
-          ;; Agent is disabled and quiescent, see if it it has been terminated.
-          :else
-          (lifecycle/terminate-agent! state aurora-url agent-id "retired"))))
+    (doseq [gocd-agent gocd-agents]
+      (log/debug "Checking gocd agent: %s" (pr-str gocd-agent))
+      (lifecycle/manage-agent state cluster-profiles gocd-agent))
     true))
 
 
@@ -343,7 +301,7 @@
 ;; example, plugin can check if flavor or region of VM is suitable.
 (defmethod handle-request "cd.go.elastic-agent.should-assign-work"
   [state _ data]
-  (log/info "should-assign-work: %s" (pr-str data))
+  (log/debug "should-assign-work: %s" (pr-str data))
   (let [cluster-profile (:cluster_profile_properties data)
         agent-profile (:elastic_agent_profile_properties data)
         agent-info (:agent data)
@@ -372,13 +330,10 @@
 ;; case the same agent can be used for another job configuration.
 (defmethod handle-request "cd.go.elastic-agent.job-completion"
   [state _ data]
-  (log/info "job-completion: %s" (pr-str data))
+  (log/debug "job-completion: %s" (pr-str data))
   (let [agent-id (:elastic_agent_id data)
         agent-profile (:elastic_agent_profile_properties data)
         cluster-profile (:cluster_profile_properties data)
         gocd-job (:job_identifier data)]
-    (swap! state
-           assoc-in [:agents agent-id :last-active]
-           ;; Add some slack here to give the agent time to start.
-           (.plusSeconds (Instant/now) 120))
+    (swap! state assoc-in [:agents agent-id :last-active] (Instant/now))
     true))
