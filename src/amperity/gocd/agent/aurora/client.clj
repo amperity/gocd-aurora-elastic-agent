@@ -95,14 +95,6 @@
       (.setInstanceCount 1))))
 
 
-(defn- aggregate-task-state
-  "Computes an aggregate job state from the task state counts."
-  [task-states]
-  (or (first (filter (comp pos-int? task-states)
-                     [:active :pending :failed :finished]))
-      :unknown))
-
-
 (defn- JobSummary->map
   "Coerce a job summary to a Clojure map."
   [^JobSummary summary]
@@ -113,12 +105,14 @@
         task-states {:active (.getActiveTaskCount stats)
                      :failed (.getFailedTaskCount stats)
                      :finished (.getFinishedTaskCount stats)
-                     :pending (.getPendingTaskCount stats)}]
-    {:role (.getRole job-key)
-     :environment (.getEnvironment job-key)
-     :name (.getName job-key)
-     :state (aggregate-task-state task-states)
-     :task-states task-states}))
+                     :pending (.getPendingTaskCount stats)}
+        state (or (first (filter (comp pos-int? task-states)
+                                 [:active :pending :failed :finished]))
+                  :unknown)]
+    {:aurora-role (.getRole job-key)
+     :aurora-env (.getEnvironment job-key)
+     :agent-name (.getName job-key)
+     :state state}))
 
 
 (defn- TaskEvent->map
@@ -174,9 +168,17 @@
       client)))
 
 
+(defn close-client
+  "Close a client in the state."
+  [state url]
+  ;; TODO: release resources?
+  (swap! state update :clients dissoc url)
+  nil)
+
+
 (defn- check-code!
   "Check that the Aurora client call succeeded."
-  [call-name ^Response response]
+  [^Response response call-name]
   (let [response-code (.getResponseCode response)]
     (when-not (= response-code ResponseCode/OK)
       (throw (ex-info (str call-name " returned unsuccessful response code: "
@@ -185,18 +187,49 @@
                        :errors (vec (.getDetails response))})))))
 
 
+(defmacro ^:private with-client
+  "Evaluate the body with an Aurora client for `url` bound to `aurora-client`.
+  Locks the client during the evaluation and closes it if any error is thrown."
+  [state url & body]
+  `(let [~'aurora-client (get-client ~state ~url)]
+     (try
+       (locking ~'aurora-client
+         ~@body)
+      (catch Exception ex#
+        (close-client ~state ~url)
+        (throw ex#)))))
+
+
+(defmacro ^:private aurora-call
+  "Make a call using the Aurora client bound by `with-client` and return the
+  result. Automatically checks the response code."
+  [method-sym & args]
+  (let [client (vary-meta 'aurora-client assoc :tag 'AuroraSchedulerManager$Client)
+        method-name (str (str/upper-case (subs (str method-sym) 0 1))
+                         (subs (str method-sym) 1))]
+    `(doto (. ~client ~method-sym ~@args)
+       (check-code! ~method-name))))
+
+
 
 ;; ## Agent API
 
 (defn list-agents
   "List the agent jobs running in Aurora."
-  [^AuroraSchedulerManager$Client client aurora-role]
-  ;; FIXME: thrift version issue here maybe?
-  (locking client
-    (let [response (.getJobSummary client aurora-role)]
-      (check-code! "GetJobSummary" response)
+  [state url aurora-role aurora-env]
+  (with-client state url
+    (let [response (aurora-call getJobSummary aurora-role)]
       (into []
-            (map JobSummary->map)
+            (comp
+              (map JobSummary->map)
+              (filter #(= aurora-env (:aurora-env %)))
+              (keep (fn agents-only
+                      [summary]
+                      (when-let [[_ tag number] (re-matches #"([a-z-]+)-agent-(\d+)"
+                                                            (:agent-name summary))]
+                        (assoc summary
+                               :agent-tag tag
+                               :agent-num number)))))
             (.. response
                 getResult
                 getJobSummaryResult
@@ -205,15 +238,14 @@
 
 (defn get-agent
   "Retrieve information about a specific agent."
-  [^AuroraSchedulerManager$Client client agent-id]
-  (locking client
+  [state url agent-id]
+  (with-client state url
     (let [{:keys [aurora-cluster aurora-role aurora-env agent-name]} (agent/parse-id agent-id)
           query (doto (TaskQuery.)
                   (.setRole aurora-role)
                   (.setEnvironment aurora-env)
                   (.setJobName agent-name))
-          response (.getTasksStatus client query)]
-      (check-code! "GetTasksStatus" response)
+          response (aurora-call getTasksStatus query)]
       (->
         (.. response
             getResult
@@ -228,40 +260,42 @@
 
 
 (defn launch-agent!
-  "Use the aurora client to launch a new agent job."
-  [^AuroraSchedulerManager$Client client
+  "Launch a new agent job in Aurora."
+  [state
+   url
    cluster-profile
    agent-profile
    agent-name
    agent-task]
-  (let [aurora-cluster (:aurora_cluster cluster-profile)
-        aurora-role (:aurora_role cluster-profile)
-        aurora-env (:aurora_env cluster-profile)
-        resources (merge agent/default-resources (agent/profile->resources agent-profile))
-        job-config (->job-config
-                     aurora-cluster
-                     aurora-role
-                     aurora-env
-                     agent-name
-                     resources
-                     agent-task)]
-    (log/info "Submitting Aurora job %s/%s/%s/%s"
-              aurora-cluster
-              aurora-role
-              aurora-env
-              agent-name)
-    (locking client
-      (let [response (.createJob client job-config)]
-        (check-code! "CreateJob" response)
-        true))))
+  (with-client state url
+    (let [aurora-cluster (:aurora_cluster cluster-profile)
+          aurora-role (:aurora_role cluster-profile)
+          aurora-env (:aurora_env cluster-profile)
+          resources (merge agent/default-resources (agent/profile->resources agent-profile))
+          job-config (->job-config
+                       aurora-cluster
+                       aurora-role
+                       aurora-env
+                       agent-name
+                       resources
+                       agent-task)]
+      (log/info "Submitting Aurora job %s/%s/%s/%s"
+                aurora-cluster
+                aurora-role
+                aurora-env
+                agent-name)
+      (aurora-call createJob job-config)
+      true)))
 
 
 (defn kill-agent!
-  [^AuroraSchedulerManager$Client client agent-id]
-  (locking client
+  "Kill a running agent job in Aurora."
+  [state url agent-id]
+  (with-client state url
     (let [{:keys [aurora-cluster aurora-role aurora-env agent-name]} (agent/parse-id agent-id)
           job-key (->job-key aurora-role aurora-env agent-name)
           task-instances #{}
-          response (.killTasks client job-key task-instances "Killed by GoCD Aurora Elastic Agent plugin")]
-      (check-code! "KillTasks" response)
+          response (aurora-call killTasks
+                                job-key task-instances
+                                "Killed by GoCD Aurora Elastic Agent plugin")]
       {:details (mapv #(.getMessage ^ResponseDetail %) (.getDetails response))})))

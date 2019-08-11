@@ -293,7 +293,7 @@
             aurora-cluster (:aurora-cluster (agent/parse-id agent-id))
             cluster-profile (first (filter #(= aurora-cluster (:aurora_cluster %))
                                            cluster-profiles))
-            aurora-client (aurora/get-client state (:aurora_url cluster-profile))
+            aurora-url (:aurora_url cluster-profile)
             ^Instant last-active (get-in @state [:agents agent-id :last-active])
             ;; TODO: make this configurable?
             ttl-seconds 60]
@@ -308,7 +308,7 @@
         (cond
           ;; Agent is in a bad state, try to clean it up.
           (contains? #{"Missing" "LostContact"} agent-state)
-          (let [agent-task (aurora/get-agent aurora-client agent-id)]
+          (let [agent-task (aurora/get-agent state aurora-url agent-id)]
             (when enabled?
               (log/info "Disabling agent %s in state %s" agent-id agent-state)
               (disable-gocd-agents app-accessor #{agent-id}))
@@ -319,7 +319,7 @@
                           (name (:status agent-task))
                           agent-id
                           agent-state)
-                (aurora/kill-agent! aurora-client agent-id))
+                (aurora/kill-agent! state aurora-url agent-id))
               ;; Agent has shut down probably.
               (do
                 (log/info "Removing %s agent %s"
@@ -347,12 +347,12 @@
 
           ;; Agent is disabled and quiescent, see if it it has been terminated.
           :else
-          (let [agent-task (aurora/get-agent aurora-client agent-id)]
+          (let [agent-task (aurora/get-agent state aurora-url agent-id)]
             (if (contains? #{:active :pending} (:status agent-task))
               ;; Kill agent.
               (do
                 (log/info "Killing retired agent %s" agent-id)
-                (aurora/kill-agent! aurora-client agent-id))
+                (aurora/kill-agent! state aurora-url agent-id))
               ;; Agent has shut down probably.
               (do
                 (log/info "Removing retired agent %s" agent-id)
@@ -379,38 +379,39 @@
 (defn- launch-agent!
   "Launch a new agent."
   [state cluster-profile agent-profile gocd-auto-register-key gocd-environment]
-  (let [aurora-client (aurora/get-client state (:aurora_url cluster-profile))]
-    (locking aurora-client
-      ;; TODO: configurable prefix
-      (let [agent-name (next-agent-name state cluster-profile "test")
-            agent-id (agent/form-id
-                       (:aurora_cluster cluster-profile)
-                       (:aurora_role cluster-profile)
-                       (:aurora_env cluster-profile)
-                       agent-name)
-            source-url (if (str/blank? (:agent_source_url cluster-profile))
-                         cluster/default-agent-source-url
-                         (:agent_source_url cluster-profile))
-            agent-task (job/agent-task
-                         agent-name
-                         {:server-url (:server-url @state)
-                          :agent-source-url source-url
-                          :auto-register-hostname agent-name
-                          :auto-register-environment gocd-environment
-                          :auto-register-key gocd-auto-register-key
-                          :elastic-plugin-id u/plugin-id
-                          :elastic-agent-id agent-id})]
-        (aurora/launch-agent!
-          aurora-client
-          cluster-profile
-          agent-profile
-          agent-name
-          agent-task)
-        (swap! state assoc-in [:agents agent-id]
-               {:environment gocd-environment
-                :resources (agent/profile->resources agent-profile)
-                :last-active (Instant/now)})
-        agent-id))))
+  (locking state
+    ;; TODO: configurable prefix
+    (let [aurora-url (:aurora_url cluster-profile)
+          agent-name (next-agent-name state cluster-profile "test")
+          agent-id (agent/form-id
+                     (:aurora_cluster cluster-profile)
+                     (:aurora_role cluster-profile)
+                     (:aurora_env cluster-profile)
+                     agent-name)
+          source-url (if (str/blank? (:agent_source_url cluster-profile))
+                       cluster/default-agent-source-url
+                       (:agent_source_url cluster-profile))
+          agent-task (job/agent-task
+                       agent-name
+                       {:server-url (:server-url @state)
+                        :agent-source-url source-url
+                        :auto-register-hostname agent-name
+                        :auto-register-environment gocd-environment
+                        :auto-register-key gocd-auto-register-key
+                        :elastic-plugin-id u/plugin-id
+                        :elastic-agent-id agent-id})]
+      (aurora/launch-agent!
+        state
+        aurora-url
+        cluster-profile
+        agent-profile
+        agent-name
+        agent-task)
+      (swap! state assoc-in [:agents agent-id]
+             {:environment gocd-environment
+              :resources (agent/profile->resources agent-profile)
+              :last-active (Instant/now)})
+      agent-id)))
 
 
 ;; This message is a request to the plugin to create an agent for a job
