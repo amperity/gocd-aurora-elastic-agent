@@ -245,18 +245,28 @@
                   (.setRole aurora-role)
                   (.setEnvironment aurora-env)
                   (.setJobName agent-name))
-          response (aurora-call getTasksStatus query)]
-      (->
-        (.. response
-            getResult
-            getScheduleStatusResult
-            getTasks)
-        (last)
-        (ScheduledTask->map)
-        (assoc :aurora-cluster aurora-cluster
-               :aurora-role aurora-role
-               :aurora-env aurora-env
-               :agent-name agent-name)))))
+          response (aurora-call getTasksStatus query)
+          tasks (mapv ScheduledTask->map
+                      (.. response
+                          getResult
+                          getScheduleStatusResult
+                          getTasks))
+          current (loop [tasks tasks
+                         candidate nil
+                         ^Instant max-time nil]
+                    (if (seq tasks)
+                      (let [task (first tasks)
+                            task-time (last (keep :time (:events task)))]
+                        (if (or (nil? max-time) (.isBefore max-time task-time))
+                          (recur (next tasks) task task-time)
+                          (recur (next tasks) candidate max-time)))
+                      candidate))]
+      (assoc current
+             ;:history tasks
+             :aurora-cluster aurora-cluster
+             :aurora-role aurora-role
+             :aurora-env aurora-env
+             :agent-name agent-name))))
 
 
 (defn launch-agent!
