@@ -12,7 +12,7 @@
    [amperity/aurora-api "0.21.0"]
    ;; Included as undeclared transitive dependencies of aurora-api.
    [com.google.code.gson/gson "2.8.5"]
-   [org.apache.thrift/libthrift "0.9.1"]]
+   [org.apache.thrift/libthrift "0.10.0"]]
 
   :java-source-paths ["src"]
 
