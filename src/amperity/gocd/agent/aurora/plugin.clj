@@ -253,7 +253,7 @@
     ;; Check on the status of each cluster.
     (doseq [cluster-profile cluster-profiles]
       (log/debug "Checking aurora cluster: %s" (pr-str cluster-profile))
-      (lifecycle/kill-orphaned-agents! state cluster-profile gocd-agents)
+      (lifecycle/prune-agents! state cluster-profile gocd-agents)
       (lifecycle/update-cluster-quota state cluster-profile))
     ;; Check on the status of each agent.
     (doseq [gocd-agent gocd-agents]
@@ -349,9 +349,6 @@
 (defmethod handle-request "cd.go.elastic-agent.job-completion"
   [state _ data]
   (log/debug "job-completion: %s" (pr-str data))
-  (let [agent-id (:elastic_agent_id data)
-        agent-profile (:elastic_agent_profile_properties data)
-        cluster-profile (:cluster_profile_properties data)
-        gocd-job (:job_identifier data)]
+  (let [agent-id (:elastic_agent_id data)]
     (swap! state assoc-in [:agents agent-id :last-active] (Instant/now))
     true))

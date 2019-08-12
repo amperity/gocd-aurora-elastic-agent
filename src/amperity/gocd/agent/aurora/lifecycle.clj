@@ -78,8 +78,8 @@
       agent-id)))
 
 
-(defn kill-orphaned-agents!
-  "Find agents which appear to be running in Aurora but are not registered in
+(defn prune-agents!
+  "Prune Aurora jobs and data about agents which appear to not be registered in
   GoCD."
   [state cluster-profile gocd-agents]
   (let [gocd-agent? (into #{} (map :agent_id) gocd-agents)
@@ -106,7 +106,11 @@
                        task-time
                        (.isBefore task-time horizon))
               (log/warn "Killing orphaned agent %s" agent-id)
-              (aurora/kill-agent! state aurora-url agent-id))))))))
+              (aurora/kill-agent! state aurora-url agent-id)
+              (swap! state update :agents dissoc agent-id))))))
+    (doseq [agent-info state-agents]
+      ;; TODO: remove state information about agents which have no aurora job or gocd job and are stale
+      ,,,)))
 
 
 (defn- terminate-agent!
