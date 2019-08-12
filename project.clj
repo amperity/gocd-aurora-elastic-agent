@@ -16,6 +16,11 @@
 
   :java-source-paths ["src"]
 
+  :hiera
+  {:cluster-depth 4
+   :vertical false
+   :show-external false}
+
   :profiles
   {:provided
    {:dependencies
