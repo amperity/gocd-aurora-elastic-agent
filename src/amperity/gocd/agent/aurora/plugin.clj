@@ -206,8 +206,8 @@
 ;; This call is expected to validate the user inputs that form a part of
 ;; the cluster profile.
 (defmethod handle-request "cd.go.elastic-agent.validate-cluster-profile"
-  [_ _ settings]
-  (cluster/validate-profile settings))
+  [_ _ data]
+  (cluster/validate-settings data))
 
 
 
@@ -231,8 +231,8 @@
 ;; This call is expected to validate the user inputs that form a part of the
 ;; elastic agent profile.
 (defmethod handle-request "cd.go.elastic-agent.validate-elastic-agent-profile"
-  [_ _ settings]
-  (agent/validate-profile settings))
+  [_ _ data]
+  (agent/validate-settings data))
 
 
 

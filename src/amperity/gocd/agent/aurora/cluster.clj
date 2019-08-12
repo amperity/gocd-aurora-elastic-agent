@@ -49,7 +49,7 @@
      :message (str label " is required")}))
 
 
-(defn validate-profile
+(defn validate-settings
   "Validate profile settings, returning a sequence of any errors found. Each
   error should be a map with `:key` and `:message` entries."
   [settings]

@@ -77,7 +77,7 @@
   (validate-number settings field-key label #(Integer/parseInt %) min-val max-val))
 
 
-(defn validate-profile
+(defn validate-settings
   "Validate profile settings, returning a sequence of any errors found. Each
   error should be a map with `:key` and `:message` entries."
   [settings]
