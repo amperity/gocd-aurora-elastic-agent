@@ -17,7 +17,8 @@
 
 (def profile-metadata
   "Schema for a cluster profile map."
-  [{:key :aurora_url
+  [;; Aurora cluster
+   {:key :aurora_url
     :metadata {:required true, :secure false}}
    {:key :aurora_cluster
     :metadata {:required true, :secure false}}
@@ -25,32 +26,37 @@
     :metadata {:required true, :secure false}}
    {:key :aurora_env
     :metadata {:required true, :secure false}}
+   ;; Agent settings
    {:key :agent_source_url
     :metadata {:required false, :secure false}}])
 
 
-(defn- migrate-profile-properties
+(defn migrate-settings
   "Migrate an existing map of profile settings to the latest representation."
-  [properties]
-  (into {}
-        (remove (comp str/blank? val))
-        {:aurora_url (:aurora_url properties)
-         :aurora_cluster (:aurora_cluster properties)
-         :aurora_role (:aurora_role properties)
-         :aurora_env (:aurora_env properties)
-         :agent_source_url (:agent_source_url properties)}))
+  [settings]
+  {:aurora_url (:aurora_url settings)
+   :aurora_cluster (:aurora_cluster settings)
+   :aurora_role (:aurora_role settings)
+   :aurora_env (:aurora_env settings)
+   :agent_source_url (:agent_source_url settings)})
 
 
-(defn migrate-profile
-  "Migrate an existing map of profile settings to the latest representation."
-  [old]
-  (update old :properties migrate-profile-properties))
+(defn- validate-string
+  "Validate that a string with the given key is set and non-blank."
+  [settings field-key label]
+  (when (str/blank? (get settings field-key))
+    {:key field-key
+     :message (str label " is required")}))
 
 
 (defn validate-profile
   "Validate profile settings, returning a sequence of any errors found. Each
   error should be a map with `:key` and `:message` entries."
   [settings]
-  ;; TODO: validate cluster profile settings
-  ;; {:key "foo", :message "..."}
-  [])
+  (into
+    []
+    (remove nil?)
+    [(validate-string settings :aurora_url "Aurora URL")
+     (validate-string settings :aurora_cluster "Aurora cluster")
+     (validate-string settings :aurora_role "Aurora role")
+     (validate-string settings :aurora_env "Aurora environment")]))

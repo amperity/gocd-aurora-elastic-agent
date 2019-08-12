@@ -121,6 +121,20 @@
    :supports_agent_status_report false})
 
 
+(defn- migrate-profile
+  "Generically migrate a profile by calling `f` on its properties. Logs when
+  profile settings change."
+  [f profile]
+  (let [old-props (:properties profile)
+        new-props (f old-props)]
+    (when (not= old-props new-props)
+      (log/info "Migrated profile %s: %s => %s"
+                (:id profile)
+                (pr-str old-props)
+                (pr-str new-props)))
+    (assoc profile :properties new-props)))
+
+
 ;; This message is a request to the plugin perform the migration on the
 ;; existing config on load of the plugin. This allows a plugin to perform
 ;; the migration on the existing config in order to support the newer
@@ -129,8 +143,12 @@
   [_ _ data]
   (let [cluster-profiles (:cluster_profiles data)
         agent-profiles (:elastic_agent_profiles data)]
-    {:cluster_profiles (mapv cluster/migrate-profile cluster-profiles)
-     :elastic_agent_profiles (mapv agent/migrate-profile agent-profiles)}))
+    {:cluster_profiles
+     (mapv (partial migrate-profile cluster/migrate-settings)
+           cluster-profiles)
+     :elastic_agent_profiles
+     (mapv (partial migrate-profile agent/migrate-settings)
+           agent-profiles)}))
 
 
 

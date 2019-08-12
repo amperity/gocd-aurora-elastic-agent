@@ -1,7 +1,6 @@
 (ns amperity.gocd.agent.aurora.agent
   "Agent profile definition and functions."
   (:require
-    [amperity.gocd.agent.aurora.logging :as log]
     [clojure.string :as str]))
 
 
@@ -27,37 +26,25 @@
     :metadata {:required false, :secure false}}])
 
 
-(defn- migrate-profile-properties
+(defn migrate-settings
   "Migrate an existing map of profile settings to the latest representation."
-  [properties]
-  {:agent_tag (:agent_tag properties)
-   :cpu (:cpu properties)
-   :ram (:ram properties)
-   :disk (:disk properties)
-   :fetch_url (:fetch_url properties)
-   :init_script (:init_script properties)})
-
-
-(defn migrate-profile
-  "Migrate an existing map of profile settings to the latest representation."
-  [old]
-  (let [old-props (:properties old)
-        new-props (migrate-profile-properties old-props)]
-    (when (not= old-props new-props)
-      (log/info "Migrated profile %s: %s => %s"
-                (pr-str old)
-                (pr-str old-props)
-                (pr-str new-props)))
-    (assoc old :properties new-props)))
+  [settings]
+  {:agent_tag (:agent_tag settings)
+   :cpu (:cpu settings)
+   :ram (:ram settings)
+   :disk (:disk settings)
+   :fetch_url (:fetch_url settings)
+   :init_script (:init_script settings)})
 
 
 (defn- validate-number
   "Validate a numeric setting. Returns an error map or nil if the
   setting is valid."
-  [field-key label value parse min-val max-val]
+  [settings field-key label parse min-val max-val]
   (->
     (try
-      (let [value (cond
+      (let [value (get settings field-key)
+            value (cond
                     (number? value) (double value)
                     (str/blank? value) nil
                     :else (parse value))]
@@ -80,14 +67,14 @@
 
 (defn- validate-float
   "Validate a floating-point number."
-  [field-key label value min-val max-val]
-  (validate-number field-key label value #(Double/parseDouble %) min-val max-val))
+  [settings field-key label min-val max-val]
+  (validate-number settings field-key label #(Double/parseDouble %) min-val max-val))
 
 
 (defn- validate-int
   "Validate an integer number."
-  [field-key label value min-val max-val]
-  (validate-number field-key label value #(Integer/parseInt %) min-val max-val))
+  [settings field-key label min-val max-val]
+  (validate-number settings field-key label #(Integer/parseInt %) min-val max-val))
 
 
 (defn validate-profile
@@ -97,13 +84,12 @@
   (into
     []
     (remove nil?)
-    [(let [agent-tag (:agent_tag settings)]
-       (when (str/blank? agent-tag)
-         {:key :agent_tag
-          :message "Agent tag prefix is required"}))
-     (validate-float :cpu "cpu allocation" (:cpu settings) 0.1 32.0)
-     (validate-int :ram "memory allocation" (:ram settings) 256 16384)
-     (validate-int :disk "disk allocation" (:disk settings) 256 16384)]))
+    [(when (str/blank? (:agent_tag settings))
+       {:key :agent_tag
+        :message "Agent tag prefix is required"})
+     (validate-float settings :cpu "cpu allocation" 0.1 32.0)
+     (validate-int settings :ram "memory allocation" 256 16384)
+     (validate-int settings :disk "disk allocation" 256 16384)]))
 
 
 
