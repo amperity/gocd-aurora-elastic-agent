@@ -1,0 +1,101 @@
+// GoCD elastic agent state model.
+//
+// Each of the state changes here is driven by some event.
+// There are three possible sources of events in the system:
+// - create-agent plugin API
+// - server-ping plugin API
+// - future callback in response to another event
+//
+// The create-agent call is only involved in one state transition; to
+// distinguish between the other two cases, a _solid line_ indicates a
+// transition in response to the server-ping info, while a _dashed line_ is
+// an async transition after a future. Happy-path transitions are black,
+// while errors are crimson.
+//
+// Keep in mind that the server-ping events might observe an agent in _any_
+// state, so should have sensible behaviors for all of them.
+//
+// For nodes, the start/end hexagons represent the initial non-existence
+// state and the final removal of the agent's state, respectively. Terminal
+// states are boxes.
+digraph agent_states {
+  node [shape=ellipse];
+
+  // Special
+  start [shape=hexagon,tooltip="Initial non-existence of the agent state."];
+  end [shape=hexagon,tooltip="Final removal of the agent state from the scheduler."];
+
+  // Initial States
+  {
+    rank = same;
+    launching [color=blue,tooltip="Agent job is being created in Aurora."];
+    legacy [color=red,tooltip="Agent is registered in GoCD but has no scheduler state."];
+    orphan [color=red,tooltip="Agent job is active in Aurora but has no scheduler state."];
+  }
+
+  // Launch states
+  node [color=blue];
+  pending [tooltip="Job created in Aurora, waiting for agent to start."];
+  starting [tooltip="Job is active in Aurora, waiting for agent registration with GoCD."];
+
+  // Main state
+  node [color=green];
+  running [tooltip="Primary healthy state"];
+
+  // Shutdown states
+  node [color=purple];
+  retiring [tooltip="Agent has been idle for a while and should be retired from service."];
+  draining [tooltip="Agent is disabled in GoCD and awaiting quiescence."];
+  killing [tooltip="The agent job is being killed in Aurora if it is active."];
+  killed [tooltip="The agent job has been killed. Wait for confirmation from Aurora."];
+  removing [tooltip="The agent is being unregistered from the GoCD server."];
+
+  // Terminal States
+  {
+    rank = same;
+    removed [color=purple,shape=box,tooltip="Agent is fully retired. State is kept briefly for historical purposes."];
+    failed [color=red,shape=box,tooltip="Agent job failed to launch."];
+  }
+
+  // Launch transitions
+  start -> launching [tooltip="Scheduler decides to launch a new agent in response to a create-agent API call. Start a future to create the job in Aurora."];
+  launching -> pending [style=dashed,tooltip="Job created successfully in Aurora."];
+  pending -> starting [tooltip="Saw active job in Aurora."];
+  pending -> running [tooltip="Saw agent registered in GoCD server."];
+  starting -> running [tooltip="Saw agent registered in GoCD server."];
+
+  // Retirement transitions
+  running -> retiring [tooltip="Idle agent scheduled for retirement. Start a future to disable the agent in GoCD."];
+  retiring -> draining [style=dashed,tooltip="Agent disabled successfully in GoCD."];
+  draining -> killing [tooltip="GoCD reports the disabled agent is idle. Start a future to kill the agent job in Aurora."];
+  killing -> killed [style=dashed,tooltip="Aurora job killed successfully."];
+  killed -> removing [tooltip="Aurora job reports it is no longer active. Start a future to remove the agent from GoCD."];
+  removing -> removed [style=dashed,tooltip="Agent removed from GoCD successfully."];
+  removed -> end [tooltip="Remove the agent from the scheduler state after a short TTL."];
+
+  // Abnormal transitions
+  start -> legacy [color=crimson,tooltip="Saw agent registered in GoCD but no corresponding state. Start a future to disable the agent in GoCD."];
+  legacy -> draining [style=dashed,tooltip="Agent disabled successfully in GoCD."];
+  start -> orphan [color=crimson,tooltip="Saw active Aurora job without state. Start a future to kill the agent."];
+  orphan -> killed [style=dashed,tooltip="Aurora job killed successfully."];
+  launching -> failed [color=crimson,style=dashed,tooltip="Launching the Aurora agent job failed."];
+  failed -> end [tooltip="Remove the agent from the scheduler state after a short TTL."];
+  running -> draining [color=crimson,tooltip="Agent externally disabled in GoCD."];
+
+  // Timeout transitions
+  edge [color=grey,style=solid];
+  orphan -> orphan [tooltip="Failed to kill agent; retry kill future after some timeout."];
+  legacy -> legacy [tooltip="Failed to disable agent; retry disable future after some timeout."];
+  pending -> killing [tooltip="Agent became stale while waiting to launch."];
+  starting -> killing [tooltip="Agent became stale while waiting to launch."];
+  launching -> failed [tooltip="Agent timed out while awaiting launch."];
+  launching -> pending [tooltip="Saw pending job in Aurora."];
+  launching -> starting [tooltip="Saw active job in Aurora."];
+  retiring -> retiring [tooltip="Retry disable future after some timeout."];
+  retiring -> draining [tooltip="Saw agent disabled in GoCD."];
+  killing -> killing [tooltip="Retry killing the job after some timeout."];
+  killing -> killed [tooltip="Saw inactive job in Aurora."];
+  removing -> removing [tooltip="Retry agent removal after some timeout."];
+  removing -> removed [tooltip="Saw unregistered agent in GoCD."];
+
+}
