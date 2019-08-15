@@ -18,6 +18,7 @@
 // For nodes, the start/end hexagons represent the initial non-existence
 // state and the final removal of the agent's state, respectively. Terminal
 // states are boxes.
+
 digraph agent_states {
   node [shape=ellipse];
 
@@ -53,12 +54,12 @@ digraph agent_states {
   // Terminal States
   {
     rank = same;
-    removed [color=purple,shape=box,tooltip="Agent is fully retired. State is kept briefly for historical purposes."];
+    terminated [color=purple,shape=box,tooltip="Agent is fully retired. State is kept briefly for historical purposes."];
     failed [color=red,shape=box,tooltip="Agent job failed to launch."];
   }
 
   // Launch transitions
-  start -> launching [tooltip="Scheduler decides to launch a new agent in response to a create-agent API call. Start a future to create the job in Aurora."];
+  start -> launching [color=darkgreen,tooltip="Scheduler decides to launch a new agent in response to a create-agent API call. Start a future to create the job in Aurora."];
   launching -> pending [style=dashed,tooltip="Job created successfully in Aurora."];
   pending -> starting [tooltip="Saw active job in Aurora."];
   pending -> running [tooltip="Saw agent registered in GoCD server."];
@@ -70,8 +71,8 @@ digraph agent_states {
   draining -> killing [tooltip="GoCD reports the disabled agent is idle. Start a future to kill the agent job in Aurora."];
   killing -> killed [style=dashed,tooltip="Aurora job killed successfully."];
   killed -> removing [tooltip="Aurora job reports it is no longer active. Start a future to remove the agent from GoCD."];
-  removing -> removed [style=dashed,tooltip="Agent removed from GoCD successfully."];
-  removed -> end [tooltip="Remove the agent from the scheduler state after a short TTL."];
+  removing -> terminated [style=dashed,tooltip="Agent removed from GoCD successfully."];
+  terminated -> end [tooltip="Remove the agent from the scheduler state after a short TTL."];
 
   // Abnormal transitions
   start -> legacy [color=crimson,tooltip="Saw agent registered in GoCD but no corresponding state. Start a future to disable the agent in GoCD."];
@@ -81,9 +82,10 @@ digraph agent_states {
   launching -> failed [color=crimson,style=dashed,tooltip="Launching the Aurora agent job failed."];
   failed -> end [tooltip="Remove the agent from the scheduler state after a short TTL."];
   running -> draining [color=crimson,tooltip="Agent externally disabled in GoCD."];
+  running -> killing [color=crimson,tooltip="Agent missing or lost-contact in GoCD."];
 
   // Timeout transitions
-  edge [color=grey,style=solid];
+  edge [color=grey];
   orphan -> orphan [tooltip="Failed to kill agent; retry kill future after some timeout."];
   legacy -> legacy [tooltip="Failed to disable agent; retry disable future after some timeout."];
   pending -> killing [tooltip="Agent became stale while waiting to launch."];
@@ -96,6 +98,6 @@ digraph agent_states {
   killing -> killing [tooltip="Retry killing the job after some timeout."];
   killing -> killed [tooltip="Saw inactive job in Aurora."];
   removing -> removing [tooltip="Retry agent removal after some timeout."];
-  removing -> removed [tooltip="Saw unregistered agent in GoCD."];
+  removing -> terminated [tooltip="Saw unregistered agent in GoCD."];
 
 }
