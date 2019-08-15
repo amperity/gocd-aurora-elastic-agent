@@ -240,13 +240,16 @@
 
 ;; Each elastic agent plugin will receive a periodic signal at regular
 ;; intervals for it to perform any cleanup operations. Plugins may use this
-;; message to disable and/or terminate agents at their discretion.
+;; message to disable and/or terminate agents at their discretion. Calls occur
+;; approximately once per minute.
 ;; NOTE: calls occur on multiple threads
 (defmethod handle-request "cd.go.elastic-agent.server-ping"
   [state _ data]
   (log/debug "server-ping: %s" (pr-str data))
-  (log/info "plugin clusters: %s" (pr-str (:clusters @state)))
-  (log/info "plugin agents: %s" (pr-str (:agents @state)))
+  (when-let [clusters (not-empty (:clusters @state))]
+    (log/info "plugin clusters: %s" (pr-str clusters)))
+  (when-let [agents (not-empty (:agents @state))]
+    (log/info "plugin agents: %s" (pr-str agents)))
   (let [cluster-profiles (:all_cluster_profile_properties data)
         app-accessor (:app-accessor @state)
         gocd-agents (server/list-agents app-accessor)]

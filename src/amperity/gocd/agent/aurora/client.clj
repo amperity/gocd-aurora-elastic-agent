@@ -142,36 +142,48 @@
 
 ;; ## Aurora Calls
 
-(defn get-client
-  "Open a client connected to the given URL. Retrieves a cached client from the
-  state atom or creates a new one as needed."
-  [state url]
-  (if-let [client (get-in @state [:clients url])]
-    client
-    (let [transport (THttpClient. url)
-          protocol (TJSONProtocol. transport)
-          factory (AuroraSchedulerManager$Client$Factory.)
-          candidate (.getClient factory protocol)
-          new-state (swap! state (fn maybe-update
-                                   [state-map]
-                                   (if (get-in state-map [:clients url])
-                                     ;; Already had a client, someone beat us to it.
-                                     state-map
-                                     ;; Inject new client.
-                                     (assoc-in state-map [:clients url] candidate))))
-          client (get-in new-state [:clients url])]
-      (when-not (identical? candidate client)
-        (.close transport))
-      client)))
+(defn open-client
+  "Open a client connected to the given URL. Returns a client map containing
+  the `:client` and `:transport`."
+  [url]
+  (log/info "Connecting aurora client to %s" url)
+  (let [transport (THttpClient. url)
+        protocol (TJSONProtocol. transport)
+        factory (AuroraSchedulerManager$Client$Factory.)
+        client (.getClient factory protocol)]
+    {:url url
+     :transport transport
+     :client client}))
 
 
 (defn close-client
-  "Close a client in the state."
-  [state url]
-  ;; TODO: release resources?
-  (swap! state update :clients dissoc url)
+  "Close a client and release resources."
+  [client-map]
+  (when-let [^THttpClient transport (:transport client-map)]
+    (when (.isOpen transport)
+      (.close transport)))
   nil)
 
+
+(defn open?
+  "True if the client map's transport is open."
+  [client-map]
+  (and (:client client-map)
+       (:transport client-map)
+       (.isOpen ^THttpClient (:transport client-map))))
+
+
+(defn ensure-client
+  "Ensure that a client is open and connected. Returns the existing client map
+  if so, otherwise closes it and returns a newly opened client map."
+  [client-map url]
+  (if (open? client-map)
+    client-map
+    (open-client url)))
+
+
+
+;; ## Method Helpers
 
 (defn- check-code!
   "Check that the Aurora client call succeeded."
@@ -189,14 +201,15 @@
 (defmacro ^:private with-client
   "Evaluate the body with an Aurora client for `url` bound to `aurora-client`.
   Locks the client during the evaluation and closes it if any error is thrown."
-  [state url & body]
-  `(let [~'aurora-client (get-client ~state ~url)]
+  [client-map & body]
+  `(let [client-map# ~client-map
+         ~'aurora-client (:client client-map#)]
      (try
        (locking ~'aurora-client
          ~@body)
-      (catch Exception ex#
-        (close-client ~state ~url)
-        (throw ex#)))))
+       (catch Exception ex#
+         (close-client client-map#)
+         (throw ex#)))))
 
 
 (defmacro ^:private aurora-call
@@ -214,10 +227,13 @@
 ;; ## Agent API
 
 (defn list-agents
-  "List the agent jobs running in Aurora."
-  [state url aurora-role aurora-env]
-  (with-client state url
-    (let [response (aurora-call getJobSummary aurora-role)]
+  "List the agent jobs running in Aurora for the given profile."
+  [client-map cluster-profile]
+  (with-client client-map
+    (let [aurora-cluster (:aurora_cluster cluster-profile)
+          aurora-role (:aurora_role cluster-profile)
+          aurora-env (:aurora_env cluster-profile)
+          response (aurora-call getJobSummary aurora-role)]
       (into []
             (comp
               (map JobSummary->map)
@@ -226,9 +242,8 @@
                       [summary]
                       (when-let [[_ tag number] (re-matches #"([a-z-]+)-agent-(\d+)"
                                                             (:agent-name summary))]
-                        (assoc summary
-                               :agent-tag tag
-                               :agent-num number)))))
+                        (let [summary (assoc summary :aurora-cluster aurora-cluster)]
+                          (assoc summary :agent-id (agent/form-id summary)))))))
             (.. response
                 getResult
                 getJobSummaryResult
@@ -237,8 +252,8 @@
 
 (defn get-agent
   "Retrieve information about a specific agent."
-  [state url agent-id]
-  (with-client state url
+  [client-map agent-id]
+  (with-client client-map
     (let [{:keys [aurora-cluster aurora-role aurora-env agent-name]} (agent/parse-id agent-id)
           query (doto (TaskQuery.)
                   (.setRole aurora-role)
@@ -265,18 +280,18 @@
              :aurora-cluster aurora-cluster
              :aurora-role aurora-role
              :aurora-env aurora-env
-             :agent-name agent-name))))
+             :agent-name agent-name
+             :agent-id agent-id))))
 
 
 (defn create-agent!
   "Launch a new agent job in Aurora."
-  [state
-   url
+  [client-map
    cluster-profile
    agent-profile
    agent-name
    agent-task]
-  (with-client state url
+  (with-client client-map
     (let [aurora-cluster (:aurora_cluster cluster-profile)
           aurora-role (:aurora_role cluster-profile)
           aurora-env (:aurora_env cluster-profile)
@@ -288,19 +303,14 @@
                        agent-name
                        resources
                        agent-task)]
-      (log/info "Submitting Aurora job %s/%s/%s/%s"
-                aurora-cluster
-                aurora-role
-                aurora-env
-                agent-name)
       (aurora-call createJob job-config)
       true)))
 
 
 (defn kill-agent!
   "Kill a running agent job in Aurora."
-  [state url agent-id]
-  (with-client state url
+  [client-map agent-id]
+  (with-client client-map
     (let [{:keys [aurora-cluster aurora-role aurora-env agent-name]} (agent/parse-id agent-id)
           job-key (->job-key aurora-role aurora-env agent-name)
           task-instances #{}
