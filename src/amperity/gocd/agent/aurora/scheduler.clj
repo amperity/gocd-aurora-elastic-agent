@@ -72,54 +72,7 @@
 
 
 
-;; ## Agent Functions
-
-(defn- init-agent-state
-  "Initialize a new agent using the given profile."
-  [agent-id state agent-profile gocd-environment]
-  {:agent-id agent-id
-   :state state
-   :environment gocd-environment
-   :resources (agent/profile->resources agent-profile)
-   :last-active (Instant/now)
-   :events []})
-
-
-(defn- update-agent-state
-  "Updates the agent's state and adds a new event."
-  [agent-state state message]
-  (-> agent-state
-      (assoc :state state)
-      (update :events
-              (fnil conj [])
-              {:time (Instant/now)
-               :state state
-               :message message})))
-
-
-(defn mark-agent-active
-  "Mark the identified agent as being recently active."
-  [agent-state]
-  (assoc agent-state :last-active (Instant/now)))
-
-
-(defn- stale?
-  "True if the agent's last event timestamp is present and more than
-  `threshold` seconds in the past."
-  [agent-state threshold]
-  (let [^Instant last-time (last (keep :time (:events agent-state)))
-        horizon (.minusSeconds (Instant/now) threshold)]
-    (and last-time (.isBefore last-time horizon))))
-
-
-(defn- idle?
-  "True if the agent's last-active timestamp is present and more than
-  `threshold` seconds in the past."
-  [agent-state threshold]
-  (let [^Instant last-active (:last-active agent-state)
-        horizon (.minusSeconds (Instant/now) threshold)]
-    (and last-active (.isBefore last-active horizon))))
-
+;; ## Job Predicates
 
 (defn- aurora-pending?
   "True if the aurora job summary indicates that there are pending tasks."
@@ -229,7 +182,7 @@
 (defn- launch-agent!
   "Start a future thread to launch a new agent in Aurora."
   [scheduler agent-id request]
-  (let [dispatch-update (self-dispatcher update-in [:agents agent-id] update-agent-state)]
+  (let [dispatch-update (self-dispatcher update-in [:agents agent-id] agent/update-state)]
     (future
       (try
         (let [cluster-profile (:cluster-profile request)
@@ -277,7 +230,7 @@
     (if (should-launch-new-agent? scheduler request)
       ;; Find next available name and launch.
       (let [agent-id (next-agent-id scheduler cluster-profile agent-tag)
-            agent-state (init-agent-state agent-id :launching agent-profile gocd-environment)]
+            agent-state (agent/init-state agent-id :launching agent-profile gocd-environment)]
         (launch-agent! scheduler agent-id request)
         (assoc-in scheduler [:agents agent-id] agent-state))
       ;; Don't launch new agent.
@@ -356,7 +309,7 @@
   map optionally containing an updated `:agent` state and an async `:effect` to
   cause."
   [scheduler agent-id f & args]
-  (let [dispatch-update (self-dispatcher update-in [:agents agent-id] update-agent-state)
+  (let [dispatch-update (self-dispatcher update-in [:agents agent-id] agent/update-state)
         agent-state (get-in scheduler [:agents agent-id])
         result (apply f agent-state args)
         next-state (:agent result)]
@@ -381,11 +334,17 @@
         scheduler))))
 
 
+(defn- update-state-fx
+  "Event response which updates the agent's state."
+  [agent-state state message]
+  {:agent (agent/update-state agent-state state message)})
+
+
 (defn- drain-agent-fx
   "Update the agent's state immediately and disable the GoCD agent. Moves the
   agent to draining once complete."
   [agent-state state message]
-  {:agent (update-agent-state agent-state state message)
+  {:agent (agent/update-state agent-state state message)
    :effect {:type :disable-gocd-agent
             :on-success [:draining "Agent disabled in GoCD"]}})
 
@@ -394,7 +353,7 @@
   "Update the agent's state immediately and kill the Aurora job. Moves the
   agent to killed once complete."
   [agent-state state message]
-  {:agent (update-agent-state agent-state state message)
+  {:agent (agent/update-state agent-state state message)
    :effect {:type :kill-aurora-agent
             :on-success [:killed "Aurora job killed"]}})
 
@@ -403,7 +362,7 @@
   "Update the agent's state immediately and remove it from the GoCD server.
   Moves the agent to terminated once complete."
   [agent-state state message]
-  {:agent (update-agent-state agent-state state message)
+  {:agent (agent/update-state agent-state state message)
    :effect {:type :delete-gocd-agent
             :on-success [:terminated "Agent terminated"]}})
 
@@ -421,16 +380,20 @@
 
 
 ;; Agent is not tracked in the scheduler state.
-(defmethod manage-agent-state :untracked
+(defmethod manage-agent-state nil
   [agent-state aurora-job gocd-agent]
   (cond
     ;; If an untracked agent is registered in gocd, this is a legacy agent.
     gocd-agent
-    (drain-agent-fx agent-state :legacy "Detected legacy agent in GoCD server")
+    (drain-agent-fx
+      agent-state :legacy
+      "Detected legacy agent in GoCD server")
 
     ;; If an untracked job is active in Aurora, this is an orphaned agent.
     (aurora-alive? aurora-job)
-    (kill-agent-fx agent-state :orphan "Detected orphaned agent job in Aurora")
+    (kill-agent-fx
+      agent-state :orphan
+      "Detected orphaned agent job in Aurora")
 
     ;; Uh... this should never happen, but just in case, do nothing.
     :else
@@ -446,21 +409,21 @@
   (cond
     ;; If active job in aurora, move to starting.
     (aurora-active? aurora-job)
-    {:agent (update-agent-state
-              agent-state :starting
-              "Aurora job is active, waiting for agent to register")}
+    (update-state-fx
+      agent-state :starting
+      "Aurora job is active, waiting for agent to register")
 
     ;; If pending job in aurora, move to pending.
     (aurora-pending? aurora-job)
-    {:agent (update-agent-state
-              agent-state :pending
-              "Aurora job is pending")}
+    (update-state-fx
+      agent-state :pending
+      "Aurora job is pending")
 
     ;; After a long timeout, assume error and move to failed.
-    (stale? agent-state 600)
-    {:agent (update-agent-state
-              agent-state :failed
-              "Agent is stale: no activity for 10 minutes")}))
+    (agent/stale? agent-state 600)
+    (update-state-fx
+      agent-state :failed
+      "Agent is stale: no activity for 10 minutes")))
 
 
 ;; Job created in Aurora, waiting for process to start.
@@ -469,19 +432,21 @@
   (cond
     ;; If active job in aurora, move to starting.
     (aurora-active? aurora-job)
-    {:agent (update-agent-state
-              agent-state :starting
-              "Aurora job is active, waiting for agent to register")}
+    (update-state-fx
+      agent-state :starting
+      "Aurora job is active, waiting for agent to register")
 
     ;; If registered in gocd, move to running.
     (gocd-registered? gocd-agent)
-    {:agent (update-agent-state
-              agent-state :running
-              "Agent registered with GoCD server")}
+    (update-state-fx
+      agent-state :running
+      "Agent registered with GoCD server")
 
     ;; After a long timeout, assume stale and kill the agent.
-    (stale? agent-state 600)
-    (kill-agent-fx agent-state :killing "Agent is stale: no activity for 10 minutes")))
+    (agent/stale? agent-state 600)
+    (kill-agent-fx
+      agent-state :killing
+      "Agent is stale: no activity for 10 minutes")))
 
 
 ;; Job is active in Aurora, waiting for registration with the GoCD server.
@@ -490,13 +455,15 @@
   (cond
     ;; If registered in gocd, move to running.
     (gocd-registered? gocd-agent)
-    {:agent (update-agent-state
-              agent-state :running
-              "Agent registered with GoCD server")}
+    (update-state-fx
+      agent-state :running
+      "Agent registered with GoCD server")
 
     ;; After a long timeout, assume stale and kill the agent.
-    (stale? agent-state 600)
-    (kill-agent-fx agent-state :killing "Agent is stale: no activity for 10 minutes")))
+    (agent/stale? agent-state 600)
+    (kill-agent-fx
+      agent-state :killing
+      "Agent is stale: no activity for 10 minutes")))
 
 
 ;; Primary healthy state.
@@ -505,9 +472,9 @@
   (cond
     ;; If some third party disabled the agent in GoCD, move to draining.
     (= "Disabled" (:agent_state gocd-agent))
-    {:agent (update-agent-state
-              agent-state :draining
-              "GoCD agent externally disabled")}
+    (update-state-fx
+      agent-state :draining
+      "GoCD agent externally disabled")
 
     ;; If missing or lost-contact, kill/move to killing.
     (contains? #{"Missing" "LostContact"} (:agent_state gocd-agent))
@@ -518,12 +485,14 @@
 
     ;; After a period of idleness, disable and move to retiring.
     (and (= "Idle" (:agent_state agent-state))
-         (idle? agent-state 300))
-    (drain-agent-fx agent-state :retiring "Retiring idle agent")
+         (agent/idle? agent-state 300))
+    (drain-agent-fx
+      agent-state :retiring
+      "Retiring idle agent")
 
     ;; Agent is not idle, update its last active time.
     (not= "Idle" (:agent_state agent-state))
-    {:agent (mark-agent-active agent-state)}))
+    {:agent (agent/mark-active agent-state)}))
 
 
 ;; Agent has been idle for a while and is being retired from service.
@@ -532,13 +501,15 @@
   (cond
     ;; If disabled in gocd, move to draining.
     (= "Disabled" (:config_state gocd-agent))
-    {:agent (update-agent-state
-              agent-state :draining
-              "Agent disabled in GoCD")}
+    (update-state-fx
+      agent-state :draining
+      "Agent disabled in GoCD")
 
     ;; After a long timeout, retry disable call.
-    (stale? agent-state 120)
-    (drain-agent-fx agent-state :retiring "Retrying agent retirement")))
+    (agent/stale? agent-state 120)
+    (drain-agent-fx
+      agent-state :retiring
+      "Retrying agent retirement")))
 
 
 ;; Agent is disabled in GoCD, wait to make sure it finishes any running jobs.
@@ -557,13 +528,15 @@
   (cond
     ;; If no longer active or pending in aurora, move to killed.
     (not (aurora-alive? aurora-job))
-    {:agent (update-agent-state
-              agent-state :killed
-              "Aurora job killed")}
+    (update-state-fx
+      agent-state :killed
+      "Aurora job killed")
 
     ;; After a timeout, retry killing the job.
-    (stale? agent-state 120)
-    (kill-agent-fx agent-state :killing "Retrying kill of Aurora job")))
+    (agent/stale? agent-state 120)
+    (kill-agent-fx
+      agent-state :killing
+      "Retrying kill of Aurora job")))
 
 
 ;; The Aurora job has been killed.
@@ -571,7 +544,9 @@
   [agent-state aurora-job gocd-agent]
   (when-not (aurora-alive? aurora-job)
     ;; If no longer active in aurora, remove the agent.
-    (terminate-agent-fx agent-state :removing "Removing GoCD agent")))
+    (terminate-agent-fx
+      agent-state :removing
+      "Removing GoCD agent")))
 
 
 ;; The agent is being unregistered from the GoCD server.
@@ -580,52 +555,58 @@
   (cond
     ;; If no longer registered with gocd, move to terminated.
     (not (gocd-registered? gocd-agent))
-    {:agent (update-agent-state
-              agent-state :terminated
-              "Agent terminated")}
+    (update-state-fx
+      agent-state :terminated
+      "Agent terminated")
 
     ;; After a timeout, retry removing the agent.
-    (stale? agent-state 120)
-    (terminate-agent-fx agent-state :removing "Retrying removal of GoCD agent")))
+    (agent/stale? agent-state 120)
+    (terminate-agent-fx
+      agent-state :removing
+      "Retrying removal of GoCD agent")))
 
 
 ;; Agent is registered in GoCD but has no scheduler state.
 (defmethod manage-agent-state :legacy
   [agent-state aurora-job gocd-agent]
-  (when (stale? agent-state 60)
+  (when (agent/stale? agent-state 60)
     ;; After a timeout, retry disabling the agent.
-    (drain-agent-fx agent-state :legacy "Retrying disable of legacy agent")))
+    (drain-agent-fx
+      agent-state :legacy
+      "Retrying disable of legacy agent")))
 
 
 ;; Agent job is active in Aurora but has no scheduler state.
 (defmethod manage-agent-state :orphan
   [agent-state aurora-job gocd-agent]
-  (when (stale? agent-state 60)
+  (when (agent/stale? agent-state 60)
     ;; After a timeout, retry killing the agent.
-    (kill-agent-fx agent-state :orphan "Retrying kill of orphaned agent")))
+    (kill-agent-fx
+      agent-state :orphan
+      "Retrying kill of orphaned agent")))
 
 
 ;; Agent is in a terminal state, keep state for a bit for introspection.
 (defmethod manage-agent-state :failed
   [agent-state aurora-job gocd-agent]
-  (when (stale? agent-state 600)
+  (when (agent/stale? agent-state 600)
     {:agent nil}))
 
 
 ;; Agent is in a terminal state, keep state for a bit for introspection.
 (defmethod manage-agent-state :terminated
   [agent-state aurora-job gocd-agent]
-  (when (stale? agent-state 300)
+  (when (agent/stale? agent-state 300)
     {:agent nil}))
 
 
 ;; Unknown state, but no running job or registered agent.
 (defmethod manage-agent-state :unknown
   [agent-state aurora-job gocd-agent]
-  {:agent (update-agent-state
-            agent-state :failed
-            (str "Aborting after encountering unknown agent state "
-                 (pr-str (:state agent-state))))})
+  (update-state-fx
+    agent-state :failed
+    (str "Aborting after encountering unknown agent state "
+         (pr-str (:state agent-state)))))
 
 
 

@@ -1,15 +1,15 @@
 (ns amperity.gocd.agent.aurora.agent
   "Agent profile definition and functions."
   (:require
-    [clojure.string :as str]))
+    [clojure.string :as str])
+  (:import
+    java.time.Instant))
 
 
 ;; ## Agent Profiles
 
 (def profile-metadata
   "Schema for an elastic agent profile map."
-  ;; TODO: wait for boot period?
-  ;; TODO: stale TTL?
   [{:key :agent_tag
     :metadata {:required true, :secure false}}
    ;; Agent Resources
@@ -155,3 +155,66 @@
       (when-let [available (get b resource)]
         (<= requirement available)))
     a))
+
+
+
+;; ## Agent State
+
+(comment
+  {:state :running
+   :environment "build"
+   :resources {:cpu 1.0, :ram 1024, :disk 1024}
+   ;; TODO: launched-for?
+   ;; TODO: idle?
+   :last-active #inst "2019-08-10T14:16:00Z"
+   :events [{:time #inst "2019-08-10T13:55:23Z"
+             :state :launching
+             :message "..."}
+            ...]})
+
+
+(defn init-state
+  "Initialize a new agent using the given profile."
+  [agent-id state agent-profile gocd-environment]
+  {:agent-id agent-id
+   :state state
+   :environment gocd-environment
+   :resources (profile->resources agent-profile)
+   :last-active (Instant/now)
+   :events []})
+
+
+(defn update-state
+  "Updates the agent's state and adds a new event to the history."
+  [agent-state state message]
+  (-> agent-state
+      (assoc :state state)
+      (update :events
+              (fnil conj [])
+              {:time (Instant/now)
+               :state state
+               :message message})))
+
+
+(defn mark-active
+  "Mark the identified agent as being recently active."
+  [agent-state]
+  (assoc agent-state :last-active (Instant/now)))
+
+
+(defn stale?
+  "True if the agent's last event timestamp is present and more than
+  `threshold` seconds in the past."
+  [agent-state threshold]
+  (let [^Instant last-time (last (keep :time (:events agent-state)))
+        horizon (.minusSeconds (Instant/now) threshold)]
+    (and last-time (.isBefore last-time horizon))))
+
+
+(defn idle?
+  "True if the agent's last-active timestamp is present and more than
+  `threshold` seconds in the past."
+  [agent-state threshold]
+  (let [^Instant last-active (:last-active agent-state)
+        horizon (.minusSeconds (Instant/now) threshold)]
+    (and last-active (.isBefore last-active horizon))))
