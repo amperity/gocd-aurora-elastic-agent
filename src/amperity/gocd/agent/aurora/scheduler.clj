@@ -40,11 +40,28 @@
              "Cannot construct dispatch function outside of an agent thread."))))
 
 
+(defn- log-state-change
+  "Log state changes to an agent."
+  [agent-id old-agent new-agent]
+  (let [old-state (:state old-agent)
+        new-state (:state new-agent)
+        last-event (last (:events new-agent))]
+    (when (not= old-state new-state)
+      (log/info "Agent %s (%s -> %s) %s"
+                agent-id
+                (name (or old-state "--"))
+                (name (or new-state "--"))
+                (:message last-event "--")))))
+
+
 (defn update-agent
   "Update the agent with the given id in the scheduler by applying `f` to it
   and `args`. Returns an updated scheduler map."
   [scheduler agent-id f & args]
-  (apply update-in scheduler [:agents agent-id] f args))
+  (let [old-agent (get-in scheduler [:agents agent-id])
+        new-agent (apply f old-agent args)]
+    (log-state-change agent-id old-agent new-agent)
+    (assoc-in scheduler [:agents agent-id] new-agent)))
 
 
 
@@ -325,7 +342,9 @@
       scheduler
 
       (map? next-state)
-      (assoc-in scheduler [:agents agent-id] next-state)
+      (do
+        (log-state-change agent-id agent-state next-state)
+        (assoc-in scheduler [:agents agent-id] next-state))
 
       (nil? next-state)
       (update scheduler :agents dissoc agent-id)
