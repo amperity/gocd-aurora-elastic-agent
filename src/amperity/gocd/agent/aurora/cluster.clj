@@ -27,6 +27,8 @@
    {:key :aurora_env
     :metadata {:required true, :secure false}}
    ;; Agent settings
+   {:key :server_api_url
+    :metadata {:required true, :secure false}}
    {:key :agent_source_url
     :metadata {:required false, :secure false}}])
 
@@ -38,6 +40,8 @@
    :aurora_cluster (:aurora_cluster settings)
    :aurora_role (:aurora_role settings)
    :aurora_env (:aurora_env settings)
+   :server_api_url (or (:server_api_url settings)
+                       "http://localhost:8153/go")
    :agent_source_url (:agent_source_url settings)})
 
 
@@ -59,7 +63,8 @@
     [(validate-string settings :aurora_url "Aurora URL")
      (validate-string settings :aurora_cluster "Aurora cluster")
      (validate-string settings :aurora_role "Aurora role")
-     (validate-string settings :aurora_env "Aurora environment")]))
+     (validate-string settings :aurora_env "Aurora environment")
+     (validate-string settings :server_api_url "Server API URL")]))
 
 
 

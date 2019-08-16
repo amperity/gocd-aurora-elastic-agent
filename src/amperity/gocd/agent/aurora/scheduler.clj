@@ -239,7 +239,7 @@
               agent-name (:agent-name (agent/parse-id agent-id))
               agent-task (job/agent-task
                            agent-name
-                           {:server-url (:server-url scheduler)
+                           {:server-url (:server_api_url cluster-profile)
                             :agent-source-url source-url
                             :auto-register-hostname agent-name
                             :auto-register-environment (:gocd-environment request)

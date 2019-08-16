@@ -32,14 +32,11 @@
   "Initialize the plugin scheduler state, returning a configured agent."
   [logger app-accessor]
   (alter-var-root #'log/logger (constantly logger))
-  (let [server-info (server/get-server-info app-accessor)
-        server-url (if-let [site-url (:site_url server-info)]
-                     (str site-url "/go")
-                     "http://localhost:8153/go")]
+  (let [server-info (server/get-server-info app-accessor)]
+    ;; TODO: not used for anything anymore
     (log/debug "Got server-info: %s" (pr-str server-info))
     (agent
       {:app-accessor app-accessor
-       :server-url server-url
        :clients {}
        :clusters {}
        :agents {}}
