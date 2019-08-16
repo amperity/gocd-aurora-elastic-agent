@@ -27,9 +27,8 @@
 
 ;; ## Scheduler Initialization
 
-(defn initialize
-  "Initialize the plugin scheduler state, returning an initial value for the
-  scheduler agent."
+(defn initialize!
+  "Initialize the plugin scheduler state, returning a configured agent."
   [logger app-accessor]
   (alter-var-root #'log/logger (constantly logger))
   (let [server-info (server/get-server-info app-accessor)
@@ -37,11 +36,14 @@
                      (str site-url "/go")
                      "http://localhost:8153/go")]
     (log/debug "Got server-info: %s" (pr-str server-info))
-    {:app-accessor app-accessor
-     :server-url server-url
-     :clients {}
-     :clusters {}
-     :agents {}}))
+    (agent
+      {:app-accessor app-accessor
+       :server-url server-url
+       :clients {}
+       :clusters {}
+       :agents {}}
+      :error-mode :continue
+      :error-handler #(log/errorx %2 "Error handling scheduler agent event"))))
 
 
 

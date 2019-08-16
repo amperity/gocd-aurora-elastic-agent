@@ -23,7 +23,7 @@ public class AuroraElasticAgentPlugin implements GoPlugin {
     // Fields
     private GoApplicationAccessor accessor;
     private IFn handler;
-    private Atom state;
+    private Agent scheduler;
 
 
     /**
@@ -55,25 +55,11 @@ public class AuroraElasticAgentPlugin implements GoPlugin {
         }
 
         try {
-            IFn init = Clojure.var("amperity.gocd.agent.aurora.plugin", "initialize");
-            IFn logger = new clojure.lang.AFn() {
-                public Object invoke(Object level, Object message, Object throwable) {
-                    logPluginMessage((String)level, (String)message, (Throwable)throwable);
-                    return null;
-                }
-            };
-            Object initial = init.invoke(logger, accessor);
-            this.state = new Agent(initial);
-            this.state.setErrorMode(Clojure.read(":continue"));
-            this.state.setErrorHandler(
-                new clojure.lang.AFn() {
-                    public Object invoke(Object agent, Object throwable) {
-                        logPluginMessage("error", "Error handling scheduler agent event!", (Throwable)throwable);
-                        return null;
-                    }
-                });
+            IFn init = Clojure.var("amperity.gocd.agent.aurora.plugin", "initialize!");
+            IFn logger = getLoggerFn();
+            this.scheduler = (Agent)init.invoke(logger, accessor);
         } catch (Exception ex) {
-            LOGGER.error("Failed to initialize plugin state", ex);
+            LOGGER.error("Failed to initialize plugin scheduler", ex);
             throw ex;
         }
     }
@@ -87,7 +73,7 @@ public class AuroraElasticAgentPlugin implements GoPlugin {
      */
     @Override
     public GoPluginApiResponse handle(GoPluginApiRequest request) throws UnhandledRequestTypeException {
-        return (GoPluginApiResponse)this.handler.invoke(state, request);
+        return (GoPluginApiResponse)this.handler.invoke(scheduler, request);
     }
 
 
@@ -134,6 +120,18 @@ public class AuroraElasticAgentPlugin implements GoPlugin {
                 }
                 break;
         }
+    }
+
+    /**
+     * Constructs a new logging function to inject into the scheduler.
+     */
+    private IFn getLoggerFn() {
+        return new clojure.lang.AFn() {
+            public Object invoke(Object level, Object message, Object throwable) {
+                logPluginMessage((String)level, (String)message, (Throwable)throwable);
+                return null;
+            }
+        };
     }
 
 }
