@@ -9,7 +9,8 @@
     [amperity.gocd.agent.aurora.server :as server]
     [amperity.gocd.agent.aurora.util :as u]
     [clojure.java.io :as io]
-    [clojure.string :as str])
+    [clojure.string :as str]
+    [hiccup.core :as hiccup])
   (:import
     (com.thoughtworks.go.plugin.api
       GoApplicationAccessor
@@ -108,8 +109,8 @@
 (defmethod handle-request "cd.go.elastic-agent.get-capabilities"
   [_ _ _]
   {:supports_plugin_status_report false
-   :supports_cluster_status_report false
-   :supports_agent_status_report false})
+   :supports_cluster_status_report true
+   :supports_agent_status_report true})
 
 
 (defn- migrate-profile
@@ -145,26 +146,78 @@
 
 ;; ## Status Reports
 
+(defn- view-response
+  "Construct a view response for a status report."
+  [data]
+  {:view (hiccup/html data)})
+
+
 ;; If plugin supports status report, this message must be implemented to report
 ;; the status of a particular elastic agent brought up by the plugin to run a
 ;; job. The purpose of this call is to provide specific information about the
 ;; current state of the elastic agent.
 (defmethod handle-request "cd.go.elastic-agent.agent-status-report"
-  [_ _ data]
+  [<scheduler> _ data]
+  (log/info "agent-status-report %s" (pr-str data))
   (let [agent-id (:elastic_agent_id data)
         cluster-profile (:cluster_profile_properties data)
         job-info (:job_identifier data)]
     ;; TODO: implement agent status report
-    {:view "<span><strong>NYI:<strong> agent status</span>"}))
+    (view-response
+      [:div
+       [:h2 "Agent Status"]
+       [:pre
+        (let [agent-state (get-in @<scheduler> [:agents agent-id])]
+          (pr-str agent-state))]])))
 
 
 ;; If plugin supports cluster status report, this message must be implemented
 ;; to provide the overall status of the cluster.
 (defmethod handle-request "cd.go.elastic-agent.cluster-status-report"
-  [_ _ data]
-  (let [cluster-profile (:cluster_profile_properties data)]
-    ;; TODO: implement cluster status report
-    {:view "<span><strong>NYI:<strong> cluster status</span>"}))
+  [<scheduler> _ data]
+  (let [cluster-profile (:cluster_profile_properties data)
+        aurora-cluster (:aurora_cluster cluster-profile)
+        aurora-role (:aurora_role cluster-profile)
+        aurora-env (:aurora_env cluster-profile)]
+    (view-response
+      [:div
+       [:h2 "Cluster Status"]
+       [:h3 "Profile"]
+       [:pre (pr-str cluster-profile)]
+       (when-let [cluster-state (get-in @<scheduler> [:clusters aurora-cluster])]
+         [:div
+          [:h3 "State"]
+          [:pre (pr-str cluster-state)]])
+       [:h3 "Agents"]
+       (when-let [aurora-url (:aurora_url cluster-profile)]
+         [:p [:a {:href (str/replace aurora-url #"/api$" (str "/scheduler/" aurora-role "/" aurora-env))}
+              (format "Aurora %s/%s/%s"
+                      aurora-cluster
+                      aurora-role
+                      aurora-env)]])
+       (->>
+         (:agents @<scheduler>)
+         (filter (comp #{aurora-cluster} :aurora-cluster agent/parse-id key))
+         (map (fn render-agent
+                [[agent-id agent-state]]
+                [:div
+                 [:h4 agent-id]
+                 [:pre (pr-str agent-state)]
+                 [:ul
+                  [:li [:strong "state:"] " " (name (:state agent-state :???))]
+                  [:li [:strong "last-active:"] " "
+                   (str (:last-active agent-state))
+                   (when (:idle? agent-state)
+                     " (idle)")]
+                  [:li [:strong "environment:"] " " (:environment agent-state :???)]
+                  [:li [:strong "resources:"]
+                   [:ul
+                    (for [[k v] (:resources agent-state)]
+                      [:li [:strong (name k) ":"] " " (str v)])]]]
+                 [:strong "Event History"]
+                 [:ul
+                  (for [event (:events agent-state)]
+                    [:li (str (:time event)) " " [:strong (name (:state event))] " " (:message event)])]])))])))
 
 
 ;; If plugin supports the plugin status report, this message must be
@@ -173,7 +226,8 @@
   [_ _ data]
   (let [cluster-profiles (:all_cluster_profile_properties data)]
     ;; TODO: implement plugin status report
-    {:view "<span><strong>NYI:<strong> plugin status</span>"}))
+    (view-response
+      [:span [:strong "NYI:"] " plugin status"])))
 
 
 
