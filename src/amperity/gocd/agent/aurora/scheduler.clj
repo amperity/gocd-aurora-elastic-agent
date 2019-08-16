@@ -140,6 +140,16 @@
     false))
 
 
+(defn mark-ready
+  "Mark the agent as running if it was in a boot state. Often the agent will
+  ask for work before the ping timer sees it has registered, so this keeps it
+  more up-to-date."
+  [agent-state]
+  (if (contains? #{:launching :pending :starting} (:state agent-state))
+    (agent/update-state agent-state :running "Agent registered with GoCD server")
+    agent-state))
+
+
 
 ;; ## Agent Launching
 
@@ -150,14 +160,16 @@
 (defn- should-create-agent?
   "True if the scheduler should create a new agent to satisfy the job."
   [scheduler request]
-  ;; TODO: need a cooldown here on launching agents for specific jobs;
-  ;; sometimes it takes a while for the new agent to come online. Maybe record
-  ;; `:launched-for` on each agent, and see if there's already an agent in the
-  ;; state for this job?
   (let [{:keys [cluster-profile agent-profile gocd-environment]} request
         aurora-cluster (:aurora_cluster cluster-profile)
         cluster-quota (get-in scheduler [:clusters aurora-cluster :quota])
         job-resources (agent/profile->resources agent-profile)
+        promised (->> (vals (:agents scheduler))
+                      (filter #(= (get-in request [:gocd-job :job_id])
+                                  (:launched-for %)))
+                      (filter (comp #{:launching :pending :starting} :state))
+                      (remove #(agent/stale? % 600))
+                      (first))
         candidates (into #{}
                          (keep
                            (fn candidate?
@@ -169,6 +181,13 @@
                                agent-id)))
                          (:agents scheduler))]
     (cond
+      ;; If there's an agent already promised to this job but not fully running
+      ;; yet, wait for it to start.
+      promised
+      (log/info "Not launching new agent because %s is still launching for job %s"
+                (:agent-id promised)
+                (:launched-for promised))
+
       ;; Some agents are already available to handle the work.
       (seq candidates)
       (log/info "Not launching new agent because %d candidates are available in environment %s: %s"
@@ -251,7 +270,9 @@
     (if (should-create-agent? scheduler request)
       ;; Find next available name and launch.
       (let [agent-id (next-agent-id scheduler cluster-profile agent-tag)
-            agent-state (agent/init-state agent-id :launching agent-profile gocd-environment)]
+            gocd-job-id (get-in request [:gocd-job :job_id])
+            agent-state (assoc (agent/init-state agent-id :launching agent-profile gocd-environment)
+                               :launched-for gocd-job-id)]
         (launch-agent! scheduler agent-id request)
         (assoc-in scheduler [:agents agent-id] agent-state))
       ;; Don't launch new agent.
@@ -487,34 +508,34 @@
 ;; Primary healthy state.
 (defmethod manage-agent-state :running
   [agent-state aurora-job gocd-agent]
-  (cond
-    ;; If some third party disabled the agent in GoCD, move to draining.
-    (= "Disabled" (:agent_state gocd-agent))
-    (update-state-fx
-      agent-state :draining
-      "GoCD agent externally disabled")
+  (let [gocd-state (:agent_state gocd-agent)]
+    (cond
+      ;; If some third party disabled the agent in GoCD, move to draining.
+      (= "Disabled" gocd-state)
+      (update-state-fx
+        agent-state :draining
+        "GoCD agent externally disabled")
 
-    ;; If missing or lost-contact, kill/move to killing.
-    (contains? #{"Missing" "LostContact"} (:agent_state gocd-agent))
-    (kill-agent-fx
-      agent-state :killing
-      (str "GoCD server thinks agent is "
-           (:agent_state gocd-agent)))
+      ;; If missing or lost-contact, kill/move to killing.
+      (contains? #{"Missing" "LostContact"} gocd-state)
+      (kill-agent-fx
+        agent-state :killing
+        (str "GoCD server thinks agent is " gocd-state))
 
-    ;; After a period of idleness, disable and move to retiring.
-    (and (= "Idle" (:agent_state agent-state))
-         (agent/idle? agent-state 300))
-    (drain-agent-fx
-      agent-state :retiring
-      "Retiring idle agent")
+      ;; After a period of idleness, disable and move to retiring.
+      (and (= "Idle" gocd-state)
+           (agent/idle? agent-state 300))
+      (drain-agent-fx
+        agent-state :retiring
+        "Retiring idle agent")
 
-    ;; Agent is idle, so mark it as not busy.
-    (= "Idle" (:agent_state gocd-agent))
-    {:agent (agent/mark-idle agent-state)}
+      ;; Agent is idle, so mark it as not busy.
+      (= "Idle" gocd-state)
+      {:agent (agent/mark-idle agent-state)}
 
-    ;; Agent is not idle, update its last active time.
-    :else
-    {:agent (agent/mark-active agent-state)}))
+      ;; Agent is not idle, update its last active time.
+      :else
+      {:agent (agent/mark-active agent-state)})))
 
 
 ;; Agent has been idle for a while and is being retired from service.

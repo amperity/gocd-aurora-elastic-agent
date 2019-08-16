@@ -291,7 +291,8 @@
                    agent-id)]
     (when decision
       (log/info "Decided to assign job %s to agent %s" job-id agent-id)
-      (send <scheduler> scheduler/update-agent agent-id agent/mark-active))
+      (send <scheduler> scheduler/update-agent agent-id
+            (comp agent/mark-active scheduler/mark-ready)))
     (DefaultGoPluginApiResponse/success (str (boolean decision)))))
 
 

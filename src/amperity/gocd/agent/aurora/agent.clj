@@ -164,9 +164,9 @@
   {:state :running
    :environment "build"
    :resources {:cpu 1.0, :ram 1024, :disk 1024}
+   :launched-for job-id
    :last-active #inst "2019-08-10T14:16:00Z"
    :idle? true
-   ;; TODO: launched-for?
    :events [{:time #inst "2019-08-10T13:55:23Z"
              :state :launching
              :message "..."}
@@ -230,7 +230,7 @@
   "True if the agent is `:idle?` and its `:last-active` timestamp is present
   and more than `threshold` seconds in the past."
   [agent-state threshold]
-  (and (:idle? agent-state)
-       (:last-active agent-state)
-       (not (.isBefore (.minusSeconds (now) threshold)
-                       (:last-active agent-state)))))
+  (let [horizon (.minusSeconds (now) threshold)]
+    (and (:idle? agent-state)
+         (:last-active agent-state)
+         (not (.isBefore horizon (:last-active agent-state))))))
