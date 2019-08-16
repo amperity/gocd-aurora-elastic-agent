@@ -170,6 +170,11 @@
                       (filter (comp #{:launching :pending :starting} :state))
                       (remove #(agent/stale? % 600))
                       (first))
+        ;; TODO: this logic results in slower ramp time than desired when lots
+        ;; of jobs want new agents, but there's a single free agent that can
+        ;; take those jobs. The existing capacity prevents new agents from
+        ;; launching, even though it's not enough to satisfy the spike in
+        ;; demand.
         candidates (into #{}
                          (keep
                            (fn candidate?
