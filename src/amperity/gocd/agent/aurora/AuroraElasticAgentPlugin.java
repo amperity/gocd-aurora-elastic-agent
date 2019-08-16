@@ -1,7 +1,7 @@
 package amperity.gocd.agent.aurora;
 
 import clojure.java.api.Clojure;
-import clojure.lang.Atom;
+import clojure.lang.Agent;
 import clojure.lang.IFn;
 import com.thoughtworks.go.plugin.api.GoApplicationAccessor;
 import com.thoughtworks.go.plugin.api.GoPluginIdentifier;
@@ -63,7 +63,15 @@ public class AuroraElasticAgentPlugin implements GoPlugin {
                 }
             };
             Object initial = init.invoke(logger, accessor);
-            this.state = new Atom(initial);
+            this.state = new Agent(initial);
+            this.state.setErrorMode(Clojure.read(":continue"));
+            this.state.setErrorHandler(
+                new clojure.lang.AFn() {
+                    public Object invoke(Object agent, Object throwable) {
+                        logPluginMessage("error", "Error handling scheduler agent event!", (Throwable)throwable);
+                        return null;
+                    }
+                });
         } catch (Exception ex) {
             LOGGER.error("Failed to initialize plugin state", ex);
             throw ex;

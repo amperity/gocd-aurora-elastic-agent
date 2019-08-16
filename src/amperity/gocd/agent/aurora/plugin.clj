@@ -4,8 +4,8 @@
     [amperity.gocd.agent.aurora.agent :as agent]
     [amperity.gocd.agent.aurora.client :as aurora]
     [amperity.gocd.agent.aurora.cluster :as cluster]
-    [amperity.gocd.agent.aurora.lifecycle :as lifecycle]
     [amperity.gocd.agent.aurora.logging :as log]
+    [amperity.gocd.agent.aurora.scheduler :as scheduler]
     [amperity.gocd.agent.aurora.server :as server]
     [amperity.gocd.agent.aurora.util :as u]
     [clojure.java.io :as io]
@@ -25,10 +25,11 @@
     java.time.Instant))
 
 
-;; ## State Initialization
+;; ## Scheduler Initialization
 
 (defn initialize
-  "Initialize the plugin state, returning an initial value for the state atom."
+  "Initialize the plugin scheduler state, returning an initial value for the
+  scheduler agent."
   [logger app-accessor]
   (alter-var-root #'log/logger (constantly logger))
   (let [server-info (server/get-server-info app-accessor)
@@ -43,18 +44,6 @@
      :agents {}}))
 
 
-(comment
-  {:clusters
-   {"aws-dev"
-    {:quota {,,,}}}
-
-   :agents
-   {"aws-dev/www-data/prod/test-agent-0"
-    {:environment "build"
-     :resources {:cpu 1.0, :ram 1024, :disk 1024}
-     :last-active #inst "2019-08-10T14:16:00Z"}}})
-
-
 
 ;; ## Request Handling
 
@@ -63,7 +52,7 @@
   empty success response, a data structure to coerce into a successful JSON
   response, or a custom `GoPluginApiResponse`."
   (fn dispatch
-    [state req-name data]
+    [<scheduler> req-name data]
     req-name))
 
 
@@ -74,12 +63,12 @@
 
 (defn handler
   "Request handling entry-point."
-  [state ^GoPluginApiRequest request]
+  [<scheduler> ^GoPluginApiRequest request]
   (try
     (let [req-name (.requestName request)
           req-data (when-not (str/blank? (.requestBody request))
                      (u/json-decode-map (.requestBody request)))
-          result (handle-request state req-name req-data)]
+          result (handle-request <scheduler> req-name req-data)]
       (cond
         (true? result)
         (DefaultGoPluginApiResponse/success "")
@@ -244,24 +233,17 @@
 ;; approximately once per minute.
 ;; NOTE: calls occur on multiple threads
 (defmethod handle-request "cd.go.elastic-agent.server-ping"
-  [state _ data]
+  [<scheduler> _ data]
   (log/debug "server-ping: %s" (pr-str data))
-  (when-let [clusters (not-empty (:clusters @state))]
+  (when-let [clusters (not-empty (:clusters @<scheduler>))]
     (log/info "plugin clusters: %s" (pr-str clusters)))
-  (when-let [agents (not-empty (:agents @state))]
+  (when-let [agents (not-empty (:agents @<scheduler>))]
     (log/info "plugin agents: %s" (pr-str agents)))
   (let [cluster-profiles (:all_cluster_profile_properties data)
-        app-accessor (:app-accessor @state)
+        ;; TODO: why do this here instead of on the agent thread? easier testing?
+        app-accessor (:app-accessor @<scheduler>)
         gocd-agents (server/list-agents app-accessor)]
-    ;; Check on the status of each cluster.
-    (doseq [cluster-profile cluster-profiles]
-      (log/debug "Checking aurora cluster: %s" (pr-str cluster-profile))
-      (lifecycle/prune-agents! state cluster-profile gocd-agents)
-      (lifecycle/update-cluster-quota state cluster-profile))
-    ;; Check on the status of each agent.
-    (doseq [gocd-agent gocd-agents]
-      (log/debug "Checking gocd agent: %s" (pr-str gocd-agent))
-      (lifecycle/manage-agent state cluster-profiles gocd-agent))
+    (send <scheduler> scheduler/manage-clusters cluster-profiles gocd-agents)
     true))
 
 
@@ -269,48 +251,15 @@
 ;; that has been scheduled.
 ;; NOTE: calls occur on multiple threads
 (defmethod handle-request "cd.go.elastic-agent.create-agent"
-  [state _ data]
+  [<scheduler> _ data]
   (log/debug "create-agent: %s" (pr-str data))
-  (let [cluster-profile (:cluster_profile_properties data)
-        agent-profile (:elastic_agent_profile_properties data)
-        gocd-job (:job_identifier data)
-        app-accessor (:app-accessor @state)
-        state-agents (:agents @state)
-        gocd-agents (server/list-agents app-accessor)
-        candidates (into []
-                         (filter
-                           (fn candidate?
-                             [gocd-agent]
-                             (let [agent-id (:agent_id gocd-agent)
-                                   agent-state (get state-agents agent-id)]
-                               (and (= "Enabled" (:config_state gocd-agent))
-                                    (= "Idle" (:agent_state gocd-agent))
-                                    (= (:environment data) (:environment agent-state))
-                                    (agent/resource-satisfied?
-                                      (agent/profile->resources agent-profile)
-                                      (:resources agent-state))))))
-                         gocd-agents)]
-    (cond
-      ;; Some agents are already available to handle the work.
-      (seq candidates)
-      (log/info "Not launching new agent because %d candidates are available in environment %s: %s"
-                (count candidates)
-                (:environment data)
-                (str/join " " candidates))
-
-      ;; TODO: check cluster quota
-      false
-      (log/info "Not launching new agent because cluster %s is at capacity (%s)"
-                (:aurora_cluster cluster-profile)
-                "...")
-
-      :else
-      (lifecycle/launch-agent!
-        state
-        cluster-profile
-        agent-profile
-        (:auto_register_key data)
-        (:environment data))))
+  (send <scheduler>
+        scheduler/request-new-agent
+        {:cluster-profile (:cluster_profile_properties data)
+         :agent-profile (:elastic_agent_profile_properties data)
+         :gocd-environment (:environment data)
+         :gocd-register-key (:auto_register_key data)
+         :gocd-job (:job_identifier data)})
   true)
 
 
@@ -321,28 +270,25 @@
 ;; decide if proposed agent is suitable to schedule a job on it. For
 ;; example, plugin can check if flavor or region of VM is suitable.
 (defmethod handle-request "cd.go.elastic-agent.should-assign-work"
-  [state _ data]
+  [<scheduler> _ data]
   (log/debug "should-assign-work: %s" (pr-str data))
   (let [cluster-profile (:cluster_profile_properties data)
         agent-profile (:elastic_agent_profile_properties data)
-        agent-info (:agent data)
-        agent-id (:agent_id agent-info)
+        agent-id (get-in data [:agent :agent_id])
         gocd-job (:job_identifier data)
         job-id (str (:pipeline_name gocd-job) "/"
                     (:pipeline_label gocd-job) "/"
                     (:stage_name gocd-job) "/"
                     (:stage_counter gocd-job) "/"
                     (:job_name gocd-job))
-        decision (if-let [resources (get-in @state [:agents agent-id :resources])]
-                   ;; Determine if job requirements are satisfied by the agent.
-                   (agent/resource-satisfied?
-                     (agent/profile->resources agent-profile)
-                     resources)
-                   ;; No resources recorded for this agent, don't assign work to it.
-                   false)]
+        decision (scheduler/should-assign-work?
+                   @<scheduler>
+                   agent-profile
+                   agent-id)]
     (when decision
       (log/info "Decided to assign job %s to agent %s" job-id agent-id)
-      (swap! state assoc-in [:agents agent-id :last-active] (Instant/now)))
+      ;; TODO: mark agent as busy?
+      (send <scheduler> update-in [:agents agent-id] scheduler/mark-agent-active))
     (DefaultGoPluginApiResponse/success (str (boolean decision)))))
 
 
@@ -350,8 +296,9 @@
 ;; The plugin may choose to terminate the elastic agent or keep it running in
 ;; case the same agent can be used for another job configuration.
 (defmethod handle-request "cd.go.elastic-agent.job-completion"
-  [state _ data]
+  [<scheduler> _ data]
   (log/debug "job-completion: %s" (pr-str data))
   (let [agent-id (:elastic_agent_id data)]
-    (swap! state assoc-in [:agents agent-id :last-active] (Instant/now))
+    ;; TODO: mark agent as idle?
+    (send <scheduler> update-in [:agents agent-id] scheduler/mark-agent-active)
     true))
