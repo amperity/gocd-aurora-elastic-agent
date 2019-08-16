@@ -181,7 +181,7 @@
                              [[agent-id agent-state]]
                              (when (and (= :running (:state agent-state))
                                         (= gocd-environment (:environment agent-state))
-                                        (:idle? agent-state)
+                                        (agent/idle? agent-state 75)
                                         (agent/resource-satisfied? job-resources (:resources agent-state)))
                                agent-id)))
                          (:agents scheduler))]
