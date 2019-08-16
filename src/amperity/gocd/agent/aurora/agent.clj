@@ -173,6 +173,13 @@
             ...]})
 
 
+(defn- now
+  "Return the current time as an `Instant`."
+  ^java.time.Instant
+  []
+  (Instant/now))
+
+
 (defn init-state
   "Initialize a new agent using the given profile."
   [agent-id state agent-profile gocd-environment]
@@ -180,7 +187,7 @@
    :state state
    :environment gocd-environment
    :resources (profile->resources agent-profile)
-   :last-active (Instant/now)
+   :last-active (now)
    :events []})
 
 
@@ -191,7 +198,7 @@
       (assoc :state state)
       (update :events
               (fnil conj [])
-              {:time (Instant/now)
+              {:time (now)
                :state state
                :message message})))
 
@@ -206,7 +213,7 @@
   "Mark the identified agent as being recently active."
   [agent-state]
   (assoc agent-state
-         :last-active (Instant/now)
+         :last-active (now)
          :idle? false))
 
 
@@ -215,7 +222,7 @@
   `threshold` seconds in the past."
   [agent-state threshold]
   (let [^Instant last-time (last (keep :time (:events agent-state)))
-        horizon (.minusSeconds (Instant/now) threshold)]
+        horizon (.minusSeconds (now) threshold)]
     (and last-time (.isBefore last-time horizon))))
 
 
@@ -225,5 +232,5 @@
   [agent-state threshold]
   (and (:idle? agent-state)
        (:last-active agent-state)
-       (not (.isBefore (.minusSeconds (Instant/now) threshold)
+       (not (.isBefore (.minusSeconds (now) threshold)
                        (:last-active agent-state)))))
