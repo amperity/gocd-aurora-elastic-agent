@@ -242,7 +242,6 @@
   (when-let [agents (not-empty (:agents @<scheduler>))]
     (log/info "plugin agents: %s" (pr-str agents)))
   (let [cluster-profiles (:all_cluster_profile_properties data)
-        ;; TODO: why do this here instead of on the agent thread? easier testing?
         app-accessor (:app-accessor @<scheduler>)
         gocd-agents (server/list-agents app-accessor)]
     (send <scheduler> scheduler/manage-clusters cluster-profiles gocd-agents)

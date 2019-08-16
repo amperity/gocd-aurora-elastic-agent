@@ -15,7 +15,12 @@
 
 (comment
   ;; Scheduler state structure.
-  {:clusters
+  {:clients
+   {"http://..."
+    {:client AuroraSchedulerManager$Client
+     :transport THttpClient}}
+
+   :clusters
    {"aws-dev"
     {:url "http://..."
      :quota {,,,}}}
@@ -47,13 +52,18 @@
 
 ;; ## Aurora Cluster Clients
 
-;; TODO: work on these
+;; TODO: work on these, probably move some to cluster ns
+
 (defn- init-client
   "Initialize an Aurora client for the given cluster."
   [scheduler cluster-profile]
-  (if-let [url (:aurora_url cluster-profile)]
-    (update-in scheduler [:clients url] aurora/ensure-client url)
-    scheduler))
+  (let [aurora-url (:aurora_url cluster-profile)
+        aurora-cluster (:aurora_cluster cluster-profile)]
+    (if (and aurora-url aurora-cluster)
+      (-> scheduler
+          (update-in [:clients aurora-url] aurora/ensure-client aurora-url)
+          (assoc-in [:clusters aurora-cluster :url] aurora-url))
+      scheduler)))
 
 
 (defn- init-cluster-clients
@@ -62,10 +72,11 @@
   (reduce init-client scheduler cluster-profiles))
 
 
-(defn- get-client
+(defn- get-cluster-client
   "Fetch an initialized Aurora client for the given profile."
   [scheduler cluster-profile]
-  (let [url (:aurora_url cluster-profile)]
+  (let [url (or (:aurora_url cluster-profile)
+                (get-in scheduler [:clusters (:aurora_cluster cluster-profile) :url]))]
     (get-in scheduler [:clients url])))
 
 
@@ -181,7 +192,7 @@
       (try
         (let [cluster-profile (:cluster-profile request)
               agent-profile (:agent-profile request)
-              aurora-client (get-client scheduler cluster-profile)
+              aurora-client (get-cluster-client scheduler cluster-profile)
               source-url (if (str/blank? (:agent_source_url cluster-profile))
                            cluster/default-agent-source-url
                            (:agent_source_url cluster-profile))
@@ -266,8 +277,7 @@
       ;; NOTE: this code assumes that cluster names map uniquely to profiles.
       (let [aurora-cluster (:aurora-cluster (agent/parse-id agent-id))
             aurora-url (get-in scheduler [:clusters aurora-cluster :url])
-            ;; FIXME: ew, gross
-            aurora-client (get-client scheduler {:aurora_url aurora-url})]
+            aurora-client (get-in scheduler [:clients aurora-url])]
         (aurora/kill-agent! aurora-client agent-id))
 
       :disable-gocd-agent
@@ -612,17 +622,19 @@
 
 (defn- set-cluster-quota
   [scheduler aurora-cluster quota-usage]
+  (log/info "set-cluster-quota %s %s" aurora-cluster (pr-str quota-usage))
   ;; TODO: implement
   scheduler)
 
 
-(defn- update-cluster-quota*
+(defn- check-cluster-quota*
   "Check the available resource quota in the given cluster. Updates the cluster
   state."
   [scheduler cluster-profile]
-  (future
-    ;; TODO: fetch/shape cluster quota information
-    ,,,))
+  (let [dispatch-update (self-dispatcher set-cluster-quota (:aurora_cluster cluster-profile))]
+    (future
+      ;; TODO: fetch/shape cluster quota information
+      ,,,)))
 
 
 (defn- list-aurora-agents*
@@ -631,9 +643,9 @@
   failure."
   [scheduler cluster-profile]
   (future
-    (log/info "list-aurora-agents* %s" (:aurora_cluster cluster-profile))
+    (log/info "list-aurora-agents %s" (:aurora_cluster cluster-profile))
     (try
-      (let [client (get-client scheduler cluster-profile)
+      (let [client (get-cluster-client scheduler cluster-profile)
             aurora-cluster (:aurora_cluster cluster-profile)
             aurora-role (:aurora_role cluster-profile)
             aurora-env (:aurora_env cluster-profile)]
@@ -644,13 +656,13 @@
         nil))))
 
 
-(defn- assemble-agent-data*
+(defn- dispatch-agent-updates*
   "Takes a map of scheduler agent states, a collection of gocd agent info, and
   a collection of deferred aurora agent job collections, and calls the provided
   function on each unique agent-id, state, aurora job, and gocd info."
   [dispatch agent-states aurora-agent-futures gocd-agents]
   (future
-    (log/info "assemble-agent-data* %d %d %d"
+    (log/info "dispatch-agent-updates %d %d %d"
               (count agent-states)
               (count aurora-agent-futures)
               (count gocd-agents))
@@ -667,7 +679,7 @@
                 (keys aurora-map)
                 (keys gocd-map))
         (into (sorted-set))
-        (map (juxt identity agent-states aurora-map gocd-map))
+        (map (juxt identity aurora-map gocd-map))
         (run! (partial apply dispatch))))))
 
 
@@ -676,15 +688,15 @@
   internal agents."
   [scheduler cluster-profiles gocd-agents]
   (let [self *agent*
-        dispatch-update
-        (fn dispatch-update
-          [agent-id agent-state aurora-job gocd-agent]
-          (send self handle-agent-event agent-id manage-agent-state agent-state aurora-job gocd-agent))
         scheduler (init-cluster-clients scheduler cluster-profiles)
         aurora-futures (mapv (partial list-aurora-agents* scheduler) cluster-profiles)]
-    (assemble-agent-data*
-      dispatch-update
-      (:agents scheduler)
-      aurora-futures
-      gocd-agents)
+    (run! (partial check-cluster-quota* scheduler) cluster-profiles)
+    (letfn [(dispatch-update
+              [agent-id aurora-job gocd-agent]
+              (send self handle-agent-event agent-id manage-agent-state aurora-job gocd-agent))]
+      (dispatch-agent-updates*
+        dispatch-update
+        (:agents scheduler)
+        aurora-futures
+        gocd-agents))
     scheduler))
