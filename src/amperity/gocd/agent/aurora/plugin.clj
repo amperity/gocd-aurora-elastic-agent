@@ -289,8 +289,7 @@
                    agent-id)]
     (when decision
       (log/info "Decided to assign job %s to agent %s" job-id agent-id)
-      ;; TODO: mark agent as busy?
-      (send <scheduler> update-in [:agents agent-id] agent/mark-active))
+      (send <scheduler> scheduler/update-agent agent-id agent/mark-active))
     (DefaultGoPluginApiResponse/success (str (boolean decision)))))
 
 
@@ -301,6 +300,5 @@
   [<scheduler> _ data]
   (log/debug "job-completion: %s" (pr-str data))
   (let [agent-id (:elastic_agent_id data)]
-    ;; TODO: mark agent as idle?
-    (send <scheduler> update-in [:agents agent-id] agent/mark-active)
+    (send <scheduler> scheduler/update-agent agent-id agent/mark-idle)
     true))

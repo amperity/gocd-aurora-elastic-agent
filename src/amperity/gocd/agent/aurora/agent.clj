@@ -164,9 +164,9 @@
   {:state :running
    :environment "build"
    :resources {:cpu 1.0, :ram 1024, :disk 1024}
-   ;; TODO: launched-for?
-   ;; TODO: idle?
    :last-active #inst "2019-08-10T14:16:00Z"
+   :idle? true
+   ;; TODO: launched-for?
    :events [{:time #inst "2019-08-10T13:55:23Z"
              :state :launching
              :message "..."}
@@ -196,10 +196,18 @@
                :message message})))
 
 
+(defn mark-idle
+  "Mark the identified agent as being idle."
+  [agent-state]
+  (assoc agent-state :idle? true))
+
+
 (defn mark-active
   "Mark the identified agent as being recently active."
   [agent-state]
-  (assoc agent-state :last-active (Instant/now)))
+  (assoc agent-state
+         :last-active (Instant/now)
+         :idle? false))
 
 
 (defn stale?
@@ -212,9 +220,10 @@
 
 
 (defn idle?
-  "True if the agent's last-active timestamp is present and more than
-  `threshold` seconds in the past."
+  "True if the agent is `:idle?` and its `:last-active` timestamp is present
+  and more than `threshold` seconds in the past."
   [agent-state threshold]
-  (let [^Instant last-active (:last-active agent-state)
-        horizon (.minusSeconds (Instant/now) threshold)]
-    (and last-active (.isBefore last-active horizon))))
+  (and (:idle? agent-state)
+       (:last-active agent-state)
+       (not (.isBefore (.minusSeconds (Instant/now) threshold)
+                       (:last-active agent-state)))))

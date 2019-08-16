@@ -21,16 +21,7 @@
      :quota {,,,}}}
 
    :agents
-   {"aws-dev/www-data/prod/test-agent-0"
-    {:state :running
-     :environment "build"
-     :resources {:cpu 1.0, :ram 1024, :disk 1024}
-     ;; TODO: launched-for?
-     :last-active #inst "2019-08-10T14:16:00Z"
-     :events [{:time #inst "2019-08-10T13:55:23Z"
-               :state :launching
-               :message "..."}
-              ...]}}})
+   {"aws-dev/www-data/prod/test-agent-0" agent-state}})
 
 
 (defn- self-dispatcher
@@ -44,6 +35,13 @@
       (apply send self f (concat args more)))
     (throw (IllegalStateException.
              "Cannot construct dispatch function outside of an agent thread."))))
+
+
+(defn update-agent
+  "Update the agent with the given id in the scheduler by applying `f` to it
+  and `args`. Returns an updated scheduler map."
+  [scheduler agent-id f & args]
+  (apply update-in scheduler [:agents agent-id] f args))
 
 
 
@@ -131,22 +129,18 @@
   ;; `:launched-for` on each agent, and see if there's already an agent in the
   ;; state for this job?
   (let [{:keys [cluster-profile agent-profile gocd-environment]} request
-        app-accessor (:app-accessor scheduler)
-        ;; TODO: if we tracked busy/idle info, wouldn't need to list here
-        gocd-agents (server/list-agents app-accessor)
-        candidates (into []
-                         (filter
+        candidates (into #{}
+                         (keep
                            (fn candidate?
-                             [gocd-agent]
-                             (let [agent-id (:agent_id gocd-agent)
-                                   agent-state (get-in scheduler [:agents agent-id])]
-                               (and (= :running (:state agent-state))
-                                    (= "Idle" (:agent_state gocd-agent))
-                                    (= gocd-environment (:environment agent-state))
-                                    (agent/resource-satisfied?
-                                      (agent/profile->resources agent-profile)
-                                      (:resources agent-state))))))
-                         gocd-agents)]
+                             [[agent-id agent-state]]
+                             (when (and (= :running (:state agent-state))
+                                        (= gocd-environment (:environment agent-state))
+                                        (:idle? agent-state)
+                                        (agent/resource-satisfied?
+                                          (agent/profile->resources agent-profile)
+                                          (:resources agent-state)))
+                               agent-id)))
+                         (:agents scheduler))]
     (cond
       ;; Some agents are already available to handle the work.
       (seq candidates)
@@ -182,7 +176,7 @@
 (defn- launch-agent!
   "Start a future thread to launch a new agent in Aurora."
   [scheduler agent-id request]
-  (let [dispatch-update (self-dispatcher update-in [:agents agent-id] agent/update-state)]
+  (let [dispatch-update (self-dispatcher update-agent agent-id agent/update-state)]
     (future
       (try
         (let [cluster-profile (:cluster-profile request)
@@ -309,7 +303,7 @@
   map optionally containing an updated `:agent` state and an async `:effect` to
   cause."
   [scheduler agent-id f & args]
-  (let [dispatch-update (self-dispatcher update-in [:agents agent-id] agent/update-state)
+  (let [dispatch-update (self-dispatcher update-agent agent-id agent/update-state)
         agent-state (get-in scheduler [:agents agent-id])
         result (apply f agent-state args)
         next-state (:agent result)]
@@ -490,8 +484,12 @@
       agent-state :retiring
       "Retiring idle agent")
 
+    ;; Agent is idle, so mark it as not busy.
+    (= "Idle" (:agent_state agent-state))
+    {:agent (agent/mark-idle agent-state)}
+
     ;; Agent is not idle, update its last active time.
-    (not= "Idle" (:agent_state agent-state))
+    :else
     {:agent (agent/mark-active agent-state)}))
 
 
