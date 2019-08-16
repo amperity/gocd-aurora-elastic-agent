@@ -17,6 +17,7 @@
       JobKey
       JobSummary
       Resource
+      ResourceAggregate
       Response
       ResponseCode
       ResponseDetail
@@ -53,6 +54,21 @@
     :disk (doto (Resource.) (.setDiskMb v))
     (throw (IllegalArgumentException.
              (str "Unknown resource key: " (pr-str k))))))
+
+
+(defn- resource->entry
+  "Return a tuple of a resource type and value if the given resource represents
+  one of the known types."
+  [^Resource r]
+  (cond
+    (.isSetNumCpus r)
+    [:cpu (.getNumCpus r)]
+
+    (.isSetRamMb r)
+    [:ram (.getRamMb r)]
+
+    (.isSetDiskMb r)
+    [:disk (.getDiskMb r)]))
 
 
 (defn- ->job-config
@@ -224,7 +240,27 @@
 
 
 
-;; ## Agent API
+;; ## Client API
+
+(defn get-quota
+  "Read the quota set for the given cluster."
+  [client-map aurora-role]
+  (with-client client-map
+    (let [response (aurora-call getQuota aurora-role)
+          result (.. response getResult getGetQuotaResult)
+          parse-resources (fn parse-resources
+                            [^ResourceAggregate agg]
+                            (into {} (keep resource->entry) (.getResources agg)))
+          available (parse-resources (.getQuota result))
+          splits {:prod-shared (parse-resources (.getProdSharedConsumption result))
+                  :prod-dedicated (parse-resources (.getProdDedicatedConsumption result))
+                  :nonprod-shared (parse-resources (.getNonProdSharedConsumption result))
+                  :nonprod-dedicated (parse-resources (.getNonProdDedicatedConsumption result))}
+          usage (apply merge-with + (vals splits))]
+      {:available available
+       :splits splits
+       :usage usage})))
+
 
 (defn list-agents
   "List the agent jobs running in Aurora for the given profile."

@@ -60,3 +60,27 @@
      (validate-string settings :aurora_cluster "Aurora cluster")
      (validate-string settings :aurora_role "Aurora role")
      (validate-string settings :aurora_env "Aurora environment")]))
+
+
+
+;; ## Quota Management
+
+(comment
+  {:available {:cpu 0.0, :disk 0, :ram 0},
+   :shares {:nonprod-dedicated {:cpu 0.0, :disk 0, :ram 0},
+            :nonprod-shared {:cpu 11.475000000000001, :disk 42712, :ram 132631},
+            :prod-dedicated {:cpu 0.0, :disk 0, :ram 0},
+            :prod-shared {:cpu 0.0, :disk 0, :ram 0}},
+   :usage {:cpu 11.475000000000001, :disk 42712, :ram 132631}})
+
+
+(defn quota-available?
+  "True if there is enough available quota for the requested resources."
+  [quota resources]
+  (every?
+    (fn satisfied?
+      [[resource required]]
+      (let [available (get-in quota [:available resource] 0)
+            usage (get-in quota [:usage resource] 0)]
+        (or (zero? available) (<= (+ usage required) available))))
+    resources))

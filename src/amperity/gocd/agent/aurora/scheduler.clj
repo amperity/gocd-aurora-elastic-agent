@@ -132,7 +132,7 @@
 ;; scheduler first decides whether it _should_ launch an agent to handle the
 ;; job; if so, it will find an unused agent name and initialize it.
 
-(defn- should-launch-new-agent?
+(defn- should-create-agent?
   "True if the scheduler should create a new agent to satisfy the job."
   [scheduler request]
   ;; TODO: need a cooldown here on launching agents for specific jobs;
@@ -140,6 +140,9 @@
   ;; `:launched-for` on each agent, and see if there's already an agent in the
   ;; state for this job?
   (let [{:keys [cluster-profile agent-profile gocd-environment]} request
+        aurora-cluster (:aurora_cluster cluster-profile)
+        cluster-quota (get-in scheduler [:clusters aurora-cluster :quota])
+        job-resources (agent/profile->resources agent-profile)
         candidates (into #{}
                          (keep
                            (fn candidate?
@@ -147,9 +150,7 @@
                              (when (and (= :running (:state agent-state))
                                         (= gocd-environment (:environment agent-state))
                                         (:idle? agent-state)
-                                        (agent/resource-satisfied?
-                                          (agent/profile->resources agent-profile)
-                                          (:resources agent-state)))
+                                        (agent/resource-satisfied? job-resources (:resources agent-state)))
                                agent-id)))
                          (:agents scheduler))]
     (cond
@@ -160,11 +161,11 @@
                 gocd-environment
                 (str/join " " candidates))
 
-      ;; TODO: check cluster quota
-      false
+      ;; Check that the cluster has available quota.
+      (not (cluster/quota-available? cluster-quota job-resources))
       (log/info "Not launching new agent because cluster %s is at capacity (%s)"
                 (:aurora_cluster cluster-profile)
-                "...")
+                (pr-str cluster-quota))
 
       :else true)))
 
@@ -232,7 +233,7 @@
         agent-profile (:agent-profile request)
         gocd-environment (:gocd-environment request)
         agent-tag (:agent_tag agent-profile)]
-    (if (should-launch-new-agent? scheduler request)
+    (if (should-create-agent? scheduler request)
       ;; Find next available name and launch.
       (let [agent-id (next-agent-id scheduler cluster-profile agent-tag)
             agent-state (agent/init-state agent-id :launching agent-profile gocd-environment)]
@@ -621,20 +622,27 @@
 ;; ## Cluster Management
 
 (defn- set-cluster-quota
-  [scheduler aurora-cluster quota-usage]
-  (log/info "set-cluster-quota %s %s" aurora-cluster (pr-str quota-usage))
-  ;; TODO: implement
-  scheduler)
+  [scheduler aurora-cluster quota]
+  (assoc-in scheduler
+            [:clusters aurora-cluster :quota]
+            (select-keys quota [:available :usage])))
 
 
 (defn- check-cluster-quota*
   "Check the available resource quota in the given cluster. Updates the cluster
   state."
   [scheduler cluster-profile]
-  (let [dispatch-update (self-dispatcher set-cluster-quota (:aurora_cluster cluster-profile))]
+  (let [aurora-cluster (:aurora_cluster cluster-profile)
+        aurora-role (:aurora_role cluster-profile)
+        dispatch-update (self-dispatcher set-cluster-quota aurora-cluster)]
     (future
-      ;; TODO: fetch/shape cluster quota information
-      ,,,)))
+      (try
+        (let [client (get-cluster-client scheduler cluster-profile)
+              quota (aurora/get-quota client aurora-role)]
+          (dispatch-update quota))
+        (catch Exception ex
+          (log/errorx ex "Failed to check quota usage for cluster %s"
+                      aurora-cluster))))))
 
 
 (defn- list-aurora-agents*
