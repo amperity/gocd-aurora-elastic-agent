@@ -8,9 +8,7 @@
     [amperity.gocd.agent.aurora.logging :as log]
     [amperity.gocd.agent.aurora.server :as server]
     [amperity.gocd.agent.aurora.util :as u]
-    [clojure.string :as str])
-  (:import
-    java.time.Instant))
+    [clojure.string :as str]))
 
 
 (comment
@@ -400,12 +398,8 @@
       agent-state :orphan
       "Detected orphaned agent job in Aurora")
 
-    ;; Uh... this should never happen, but just in case, do nothing.
-    :else
-    (log/warn "manage-agent-state encountered unexpected state: %s %s %s"
-              (pr-str agent-state)
-              (pr-str aurora-job)
-              (pr-str gocd-agent))))
+    ;; Otherwise, this is a dead aurora job, so ignore.
+    :else nil))
 
 
 ;; Agent job is being created in Aurora.
@@ -496,7 +490,7 @@
       "Retiring idle agent")
 
     ;; Agent is idle, so mark it as not busy.
-    (= "Idle" (:agent_state agent-state))
+    (= "Idle" (:agent_state gocd-agent))
     {:agent (agent/mark-idle agent-state)}
 
     ;; Agent is not idle, update its last active time.
@@ -651,13 +645,9 @@
   failure."
   [scheduler cluster-profile]
   (future
-    (log/info "list-aurora-agents %s" (:aurora_cluster cluster-profile))
     (try
-      (let [client (get-cluster-client scheduler cluster-profile)
-            aurora-cluster (:aurora_cluster cluster-profile)
-            aurora-role (:aurora_role cluster-profile)
-            aurora-env (:aurora_env cluster-profile)]
-        (aurora/list-agents client aurora-role aurora-env))
+      (let [client (get-cluster-client scheduler cluster-profile)]
+        (aurora/list-agents client cluster-profile))
       (catch Exception ex
         (log/errorx ex "Failed to list aurora agents for cluster %s"
                     (:aurora_cluster cluster-profile))
@@ -670,10 +660,6 @@
   function on each unique agent-id, state, aurora job, and gocd info."
   [dispatch agent-states aurora-agent-futures gocd-agents]
   (future
-    (log/info "dispatch-agent-updates %d %d %d"
-              (count agent-states)
-              (count aurora-agent-futures)
-              (count gocd-agents))
     (let [aurora-map (into {}
                            (comp
                              (mapcat deref)

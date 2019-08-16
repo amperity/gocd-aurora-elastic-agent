@@ -237,8 +237,11 @@
 (defmethod handle-request "cd.go.elastic-agent.server-ping"
   [<scheduler> _ data]
   (log/debug "server-ping: %s" (pr-str data))
+  ;; TODO: DEBUG
+  #_
   (when-let [clusters (not-empty (:clusters @<scheduler>))]
     (log/info "plugin clusters: %s" (pr-str clusters)))
+  #_
   (when-let [agents (not-empty (:agents @<scheduler>))]
     (log/info "plugin agents: %s" (pr-str agents)))
   (let [cluster-profiles (:all_cluster_profile_properties data)
