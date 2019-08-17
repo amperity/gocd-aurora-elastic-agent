@@ -8,7 +8,7 @@
 
     <vendor>
       <name>Amperity</name>
-      <url>https://www.amperity.com</url>
+      <url>https://github.com/amperity/gocd-aurora-elastic-agent</url>
     </vendor>
 
     <target-os>
