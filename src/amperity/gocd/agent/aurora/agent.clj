@@ -20,8 +20,6 @@
    {:key :disk
     :metadata {:required true, :secure false}}
    ;; Agent Setup
-   {:key :fetch_url
-    :metadata {:required false, :secure false}}
    {:key :init_script
     :metadata {:required false, :secure false}}])
 
@@ -33,7 +31,6 @@
    :cpu (:cpu settings)
    :ram (:ram settings)
    :disk (:disk settings)
-   :fetch_url (:fetch_url settings)
    :init_script (:init_script settings)})
 
 

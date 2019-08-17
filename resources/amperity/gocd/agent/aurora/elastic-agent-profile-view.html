@@ -36,12 +36,6 @@
   </p>
 
   <div class="form_item_block">
-    <label title="If set, the agent will fetch and extract the file at this URL into the sandbox root.">Fetch URL:</label>
-    <input type="url" ng-model="fetch_url" ng-required="false"/>
-    <span class="form_error" ng-show="GOINPUTNAME[fetch_url].$error.server">{{GOINPUTNAME[fetch_url].$error.server}}</span>
-  </div>
-
-  <div class="form_item_block">
     <label title="A set of shell commands to run in the agent's sandbox before starting it.">Initialization Script:</label>
     <textarea type="text" ng-model="init_script" rows="7"></textarea>
     <span class="form_error" ng-show="GOINPUTNAME[init_script].$error.server">{{ GOINPUTNAME[init_script].$error.server}}</span>
