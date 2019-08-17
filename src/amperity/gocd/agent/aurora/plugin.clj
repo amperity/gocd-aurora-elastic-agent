@@ -252,6 +252,14 @@
   (cluster/validate-settings data))
 
 
+;; This is called when a cluster profile is changed.
+(defmethod handle-request "cd.go.elastic-agent.cluster-profile-changed"
+  [_ _ data]
+  (log/info "cluster-profile-changed %s" (pr-str data))
+  ;; TODO: determine what to do here
+  true)
+
+
 
 ;; ## Elastic Agent Profiles
 
@@ -277,6 +285,14 @@
   (agent/validate-settings data))
 
 
+;; This is called when an agent profile is changed.
+(defmethod handle-request "cd.go.elastic-agent.elastic-agent-profile-changed"
+  [_ _ data]
+  (log/info "elastic-agent-profile-changed %s" (pr-str data))
+  ;; TODO: determine what to do here
+  true)
+
+
 
 ;; ## Agent Lifecycle
 
@@ -288,13 +304,6 @@
 (defmethod handle-request "cd.go.elastic-agent.server-ping"
   [<scheduler> _ data]
   (log/debug "server-ping: %s" (pr-str data))
-  ;; TODO: DEBUG
-  #_
-  (when-let [clusters (not-empty (:clusters @<scheduler>))]
-    (log/info "plugin clusters: %s" (pr-str clusters)))
-  #_
-  (when-let [agents (not-empty (:agents @<scheduler>))]
-    (log/info "plugin agents: %s" (pr-str agents)))
   (let [cluster-profiles (:all_cluster_profile_properties data)
         app-accessor (:app-accessor @<scheduler>)
         gocd-agents (server/list-agents app-accessor)]
