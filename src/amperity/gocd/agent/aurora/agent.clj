@@ -84,6 +84,9 @@
     [(when (str/blank? (:agent_tag settings))
        {:key :agent_tag
         :message "Agent tag prefix is required"})
+     (when-not (re-matches #"[a-z]+" (:agent_tag settings))
+       {:key :agent_tag
+        :message "Agent tag must consist of lowercase letters"})
      (validate-float settings :cpu "cpu allocation" 0.1 32.0)
      (validate-int settings :ram "memory allocation" 256 16384)
      (validate-int settings :disk "disk allocation" 256 16384)]))
