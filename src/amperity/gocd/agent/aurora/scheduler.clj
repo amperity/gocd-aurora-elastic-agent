@@ -516,11 +516,11 @@
   [agent-state aurora-job gocd-agent]
   (let [gocd-state (:agent_state gocd-agent)]
     (cond
-      ;; If some third party disabled the agent in GoCD, move to draining.
-      (= "Disabled" gocd-state)
-      (update-state-fx
-        agent-state :draining
-        "GoCD agent externally disabled")
+      ;; If the agent is gone, kill it.
+      (nil? gocd-state)
+      (kill-agent-fx
+        agent-state :killing
+        "Agent is gone from GoCD server")
 
       ;; If missing or lost-contact, kill/move to killing.
       (contains? #{"Missing" "LostContact"} gocd-state)
@@ -528,9 +528,14 @@
         agent-state :killing
         (str "GoCD server thinks agent is " gocd-state))
 
+      ;; If some third party disabled the agent in GoCD, move to draining.
+      (= "Disabled" (:config_state gocd-agent))
+      (update-state-fx
+        agent-state :draining
+        "GoCD agent externally disabled")
+
       ;; After a period of idleness, disable and move to retiring.
-      (and (= "Idle" gocd-state)
-           (agent/idle? agent-state 300))
+      (and (= "Idle" gocd-state) (agent/idle? agent-state 300))
       (drain-agent-fx
         agent-state :retiring
         "Retiring idle agent")
