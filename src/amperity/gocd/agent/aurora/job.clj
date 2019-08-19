@@ -33,14 +33,17 @@
 ;; ## Job Tasks
 
 (defn- ->proc
-  "Construct an Aurora process definition with the given name and command."
-  [proc-name cmdline]
+  "Construct an Aurora process definition with the given name and command
+  list. Commands will be flattened and have nils removed."
+  [proc-name & cmds]
   {:name proc-name
    :daemon false
    :max_failures 1
    :ephemeral false
    :min_duration 5
-   :cmdline cmdline
+   :cmdline (->> (flatten cmds)
+                 (remove nil?)
+                 (str/join "\n"))
    :final false})
 
 
@@ -50,13 +53,11 @@
   [source-url]
   (->proc
     "install"
-    (->>
-      ["set -e"
-       (str "wget -O go-agent.zip " source-url)
-       "unzip go-agent.zip"
-       "rm go-agent.zip"
-       "mv go-agent-* go-agent"]
-      (str/join "\n"))))
+    "set -e"
+    (str "wget -O go-agent.zip " source-url)
+    "unzip go-agent.zip"
+    "rm go-agent.zip"
+    "mv go-agent-* go-agent"))
 
 
 (defn- configure-proc
@@ -77,24 +78,21 @@
               (str "echo '" k "=" v "' >> " wrapper-properties-path))]
       (->proc
         "configure"
-        (->>
-          ["set -e"
-           "mkdir go-agent/config"
-           (clean wrapper-properties-path)
-           (wrapper-property "wrapper.app.parameter.100" "-serverUrl")
-           (wrapper-property "wrapper.app.parameter.101" (:server-url params))
-           (clean autoregister-properties-path)
-           (autoregister-property "agent.auto.register.key" (:auto-register-key params))
-           (autoregister-property "agent.auto.register.hostname" (:auto-register-hostname params))
-           (when-let [environment (:auto-register-environment params)]
-             (autoregister-property "agent.auto.register.environments" environment))
-           (autoregister-property "agent.auto.register.elasticAgent.pluginId" (:elastic-plugin-id params))
-           (autoregister-property "agent.auto.register.elasticAgent.agentId" (:elastic-agent-id params))
-           (str "base64 -d <<<'" (u/b64-encode-str logback-xml) "' > go-agent/config/agent-bootstrapper-logback.xml")
-           "cp go-agent/config/agent-bootstrapper-logback.xml go-agent/config/agent-launcher-logback.xml"
-           "cp go-agent/config/agent-bootstrapper-logback.xml go-agent/config/agent-logback.xml"]
-          (remove nil?)
-          (str/join "\n"))))))
+        "set -e"
+        "mkdir go-agent/config"
+        (clean wrapper-properties-path)
+        (wrapper-property "wrapper.app.parameter.100" "-serverUrl")
+        (wrapper-property "wrapper.app.parameter.101" (:server-url params))
+        (clean autoregister-properties-path)
+        (autoregister-property "agent.auto.register.key" (:auto-register-key params))
+        (autoregister-property "agent.auto.register.hostname" (:auto-register-hostname params))
+        (when-let [environment (:auto-register-environment params)]
+          (autoregister-property "agent.auto.register.environments" environment))
+        (autoregister-property "agent.auto.register.elasticAgent.pluginId" (:elastic-plugin-id params))
+        (autoregister-property "agent.auto.register.elasticAgent.agentId" (:elastic-agent-id params))
+        (str "base64 -d <<<'" (u/b64-encode-str logback-xml) "' > go-agent/config/agent-bootstrapper-logback.xml")
+        "cp go-agent/config/agent-bootstrapper-logback.xml go-agent/config/agent-launcher-logback.xml"
+        "cp go-agent/config/agent-bootstrapper-logback.xml go-agent/config/agent-logback.xml"))))
 
 
 (defn- init-proc
@@ -110,10 +108,8 @@
   []
   (->proc
     "run"
-    (->>
-      ["export PATH=\"$HOME/bin:$PATH\""
-       "go-agent/bin/go-agent console"]
-      (str/join "\n"))))
+    "export PATH=\"$HOME/bin:$PATH\""
+    "go-agent/bin/go-agent console"))
 
 
 (defn agent-task
