@@ -49,7 +49,7 @@ jobs:
             - v1-coverage-{{ checksum "project.clj" }}
             - v1-coverage-
             - v1-test-
-      - run: lein coverage --codecov
+      - run: lein cloverage --codecov
       - save_cache:
           key: v1-coverage-{{ checksum "project.clj" }}
           paths:

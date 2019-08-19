@@ -7,6 +7,9 @@
   :repositories
   [["amperity" "https://s3-us-west-2.amazonaws.com/amperity-static-packages/jars/"]]
 
+  :plugins
+  [[lein-cloverage "1.1.0"]]
+
   :dependencies
   [[org.clojure/clojure "1.10.1"]
    [amperity/aurora-api "0.21.0"]

@@ -3,6 +3,9 @@ gocd-aurora-elastic-agent
 
 <img height="80" width="80" align="right" src="resources/amperity/gocd/agent/aurora/logo.svg"/>
 
+[![CircleCI](https://circleci.com/gh/amperity/gocd-aurora-elastic-agent.svg?style=shield&circle-token=69e958626f163693a8b24fe5a76d5a3795157257)](https://circleci.com/gh/amperity/gocd-aurora-elastic-agent)
+[![codecov](https://codecov.io/gh/amperity/gocd-aurora-elastic-agent/branch/master/graph/badge.svg)](https://codecov.io/gh/amperity/gocd-aurora-elastic-agent)
+
 A plugin for [GoCD](https://www.gocd.org/) providing elastic agent support via
 [Apache Aurora](https://aurora.apache.org/).
 
