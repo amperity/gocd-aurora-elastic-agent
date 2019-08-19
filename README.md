@@ -1,8 +1,12 @@
 gocd-aurora-elastic-agent
 =========================
 
+<img height="80" width="80" align="right" src="resources/amperity/gocd/agent/aurora/logo.svg"/>
+
 A plugin for [GoCD](https://www.gocd.org/) providing elastic agent support via
 [Apache Aurora](https://aurora.apache.org/).
+
+<br/>
 
 
 ## Installation
