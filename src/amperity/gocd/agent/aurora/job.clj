@@ -108,7 +108,12 @@
 (defn- run-proc
   "Constructs a new Aurora process definition to run the gocd agent."
   []
-  (->proc "run" "go-agent/bin/go-agent console"))
+  (->proc
+    "run"
+    (->>
+      ["export PATH=\"$HOME/bin:$PATH\""
+       "go-agent/bin/go-agent console"]
+      (str/join "\n"))))
 
 
 (defn agent-task
