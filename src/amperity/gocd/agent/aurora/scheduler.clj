@@ -245,7 +245,8 @@
                             :auto-register-environment (:gocd-environment request)
                             :auto-register-key (:gocd-register-key request)
                             :elastic-plugin-id u/plugin-id
-                            :elastic-agent-id agent-id})]
+                            :elastic-agent-id agent-id
+                            :init-script (:init_script agent-profile)})]
           (aurora/create-agent!
             aurora-client
             cluster-profile
