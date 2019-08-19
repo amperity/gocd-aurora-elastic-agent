@@ -45,15 +45,15 @@
                     (number? value) (double value)
                     (str/blank? value) nil
                     :else (parse value))]
-         (cond
-           (nil? value)
-           (str label " is required")
+        (cond
+          (nil? value)
+          (str label " is required")
 
-           (< value min-val)
-           (str label " must be at least " min-val)
+          (< value min-val)
+          (str label " must be at least " min-val)
 
-           (< max-val value)
-           (str label " must be at most " max-val)))
+          (< max-val value)
+          (str label " must be at most " max-val)))
       (catch Exception ex
         (str "Could not parse " label " as a number")))
     (as-> message

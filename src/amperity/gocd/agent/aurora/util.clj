@@ -53,8 +53,7 @@
         (instance? java.util.Set x)
         (into #{} x)
 
-        :else x)
-      )
+        :else x))
     v))
 
 
