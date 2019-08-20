@@ -731,6 +731,10 @@
     (try
       (let [client (get-cluster-client scheduler cluster-profile)]
         (aurora/list-agents client cluster-profile))
+      (catch org.apache.thrift.transport.TTransportException ex
+        (log/error "Failed to list aurora agents for cluster %s: %s"
+                    (:aurora_cluster cluster-profile)
+                    (.getMessage ex)))
       (catch Exception ex
         (log/errorx ex "Failed to list aurora agents for cluster %s"
                     (:aurora_cluster cluster-profile))
