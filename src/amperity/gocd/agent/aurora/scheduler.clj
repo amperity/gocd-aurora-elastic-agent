@@ -257,7 +257,7 @@
         (dispatch-update :pending "Agent job created in Aurora")
         (catch Exception ex
           ;; On failure, set state to failed.
-          (log/errorx ex "Failed to create agent job in Aurora")
+          (log/errorx ex "Failed to create agent job %s in Aurora" agent-id)
           (dispatch-update
             :failed
             (str "Failed to create agent job in Aurora: "
@@ -360,6 +360,14 @@
         agent-state (get-in scheduler [:agents agent-id])
         result (apply f agent-state args)
         next-state (:agent result)]
+    ;; Catch-all logging for agents which seem to be stale.
+    (when (and (agent/stale? agent-state 900)
+               (or (not= :running (:state agent-state))
+                   (agent/idle? agent-state 900)))
+      (log/warn "Unexpected stale agent state detected: %s %s => %s"
+                (pr-str agent-state)
+                (pr-str args)
+                (pr-str result)))
     ;; Invoke side effects.
     (when-let [effect (:effect result)]
       (enact-effect! scheduler dispatch-update (assoc effect :agent-id agent-id)))
@@ -643,7 +651,18 @@
 ;; Agent is in a terminal state, keep state for a bit for introspection.
 (defmethod manage-agent-state :failed
   [agent-state aurora-job gocd-agent]
-  (when (agent/stale? agent-state 600)
+  (cond
+    gocd-agent
+    (drain-agent-fx
+      agent-state :legacy
+      "Detected legacy agent in GoCD server")
+
+    (aurora-alive? aurora-job)
+    (kill-agent-fx
+      agent-state :orphan
+      "Detected orphaned agent job in Aurora")
+
+    (agent/stale? agent-state 600)
     {:agent nil}))
 
 
