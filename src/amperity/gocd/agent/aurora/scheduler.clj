@@ -685,7 +685,20 @@
 
 ;; ## Cluster Management
 
+(defn- wait-or-cancel
+  "Wait for the future `f` to complete for up to `timeout` milliseconds.
+  Returns the future results if it completes, or cancels it an returns nil if
+  the timeout is reached."
+  [timeout f]
+  (let [result (deref f 5000 ::timeout)]
+    (if (identical? ::timeout result)
+      (do (future-cancel f)
+          nil)
+      result)))
+
+
 (defn- set-cluster-quota
+  "Update the scheduler and set the provided quota data."
   [scheduler aurora-cluster quota]
   (assoc-in scheduler
             [:clusters aurora-cluster :quota]
@@ -732,7 +745,7 @@
   (future
     (let [aurora-map (into {}
                            (comp
-                             (mapcat deref)
+                             (mapcat (partial wait-or-cancel 5000))
                              (map (juxt :agent-id identity)))
                            aurora-agent-futures)
           gocd-map (into {}

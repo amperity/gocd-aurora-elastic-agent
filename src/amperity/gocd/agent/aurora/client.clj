@@ -163,7 +163,9 @@
   the `:client` and `:transport`."
   [url]
   (log/info "Connecting aurora client to %s" url)
-  (let [transport (THttpClient. url)
+  (let [transport (doto (THttpClient. url)
+                    (.setConnectTimeout 5000)
+                    (.setReadTimeout 3000))
         protocol (TJSONProtocol. transport)
         factory (AuroraSchedulerManager$Client$Factory.)
         client (.getClient factory protocol)]
