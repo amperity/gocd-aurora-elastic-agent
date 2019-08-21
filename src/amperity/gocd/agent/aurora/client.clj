@@ -203,17 +203,27 @@
 
 ;; ## Method Helpers
 
+(defn- parse-details
+  "Return the sequence of detail messages attached to an Aurora API response,
+  if any."
+  [^Response response]
+  (into []
+        (map #(.getMessage ^ResponseDetail %))
+        (.getDetails response)))
+
+
 (defn- check-code!
   "Check that the Aurora client call succeeded."
   [^Response response call-name]
-  (let [response-code (.getResponseCode response)]
+  (let [response-code (.getResponseCode response)
+        details (parse-details response)]
     (when-not (= response-code ResponseCode/OK)
-      (throw (ex-info (str call-name " returned unsuccessful response code: "
-                           response-code)
+      (throw (ex-info (format "%s returned unsuccessful response code: %s (%s)"
+                               call-name
+                               response-code
+                               (str/join ", " details))
                       {:code response-code
-                       :errors (into []
-                                     (map #(.getMessage ^ResponseDetail %))
-                                     (.getDetails response))})))))
+                       :details details})))))
 
 
 (defmacro ^:private with-client
