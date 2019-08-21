@@ -276,9 +276,11 @@
     (if (should-create-agent? scheduler request)
       ;; Find next available name and launch.
       (let [agent-id (next-agent-id scheduler cluster-profile agent-tag)
-            gocd-job-id (get-in request [:gocd-job :job_id])
+            gocd-job (:gocd-job request)
             agent-state (assoc (agent/init-state agent-id :launching agent-profile gocd-environment)
-                               :launched-for gocd-job-id)]
+                               :launched-for (:job_id gocd-job))]
+        (log/info "Launching new agent %s for job %s"
+                  agent-id (server/job-label gocd-job))
         (launch-agent! scheduler agent-id request)
         (assoc-in scheduler [:agents agent-id] agent-state))
       ;; Don't launch new agent.

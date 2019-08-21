@@ -340,17 +340,14 @@
         agent-profile (:elastic_agent_profile_properties data)
         agent-id (get-in data [:agent :agent_id])
         gocd-job (:job_identifier data)
-        job-id (str (:pipeline_name gocd-job) "/"
-                    (:pipeline_label gocd-job) "/"
-                    (:stage_name gocd-job) "/"
-                    (:stage_counter gocd-job) "/"
-                    (:job_name gocd-job))
         decision (scheduler/should-assign-work?
                    @<scheduler>
                    agent-profile
                    agent-id)]
     (when decision
-      (log/info "Decided to assign job %s to agent %s" job-id agent-id)
+      (log/info "Assigning job %s to agent %s"
+                (server/job-label gocd-job)
+                agent-id)
       (send <scheduler> scheduler/update-agent agent-id
             (comp agent/mark-active scheduler/mark-ready)))
     (DefaultGoPluginApiResponse/success (str (boolean decision)))))

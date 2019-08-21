@@ -16,6 +16,22 @@
   (GoPluginIdentifier. "elastic-agent" ["5.0"]))
 
 
+
+;; ## Job Utilities
+
+(defn job-label
+  "Generate a human-meaningful label for a GoCD job."
+  [gocd-job]
+  (str (:pipeline_name gocd-job) "/"
+       (:pipeline_label gocd-job) "/"
+       (:stage_name gocd-job) "/"
+       (:stage_counter gocd-job) "/"
+       (:job_name gocd-job)))
+
+
+
+;; ## Server Methods
+
 (defn get-server-info
   "Retrieve information about the GoCD server."
   [^GoApplicationAccessor app-accessor]
