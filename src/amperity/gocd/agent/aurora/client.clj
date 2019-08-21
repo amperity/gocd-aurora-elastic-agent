@@ -219,9 +219,9 @@
         details (parse-details response)]
     (when-not (= response-code ResponseCode/OK)
       (throw (ex-info (format "%s returned unsuccessful response code: %s (%s)"
-                               call-name
-                               response-code
-                               (str/join ", " details))
+                              call-name
+                              response-code
+                              (str/join ", " details))
                       {:code response-code
                        :details details})))))
 
