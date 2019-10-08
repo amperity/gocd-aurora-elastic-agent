@@ -1,4 +1,4 @@
-(defproject amperity/gocd-aurora-elastic-agent "0.1.0-SNAPSHOT"
+(defproject amperity/gocd-aurora-elastic-agent "0.1.0"
   :description "A plugin for GoCD providing elastic agent support via Apache Aurora."
   :url "https://github.com/amperity/gocd-aurora-elastic-agent"
   :license {:name "Apache License 2.0"
