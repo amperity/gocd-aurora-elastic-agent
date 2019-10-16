@@ -28,7 +28,7 @@
   :profiles
   {:provided
    {:dependencies
-    [[cd.go.plugin/go-plugin-api "19.7.0"]
+    [[cd.go.plugin/go-plugin-api "19.8.0"]
      [com.google.guava/guava "23.0"]]}
 
    :repl
