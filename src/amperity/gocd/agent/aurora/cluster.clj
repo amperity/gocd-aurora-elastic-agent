@@ -5,8 +5,8 @@
 
 
 (def default-agent-source-url
-  (let [version "19.7.0"
-        build "9567"
+  (let [version "19.8.0"
+        build "9915"
         coord (str version "-" build)]
     (str "https://download.gocd.org/binaries/" coord
          "/generic/go-agent-" coord ".zip")))
