@@ -88,8 +88,8 @@
        {:key :agent_tag
         :message "Agent tag must consist of lowercase letters"})
      (validate-float settings :cpu "cpu allocation" 0.1 32.0)
-     (validate-int settings :ram "memory allocation" 256 16384)
-     (validate-int settings :disk "disk allocation" 256 65536)]))
+     (validate-int settings :ram "memory allocation" 256 262144) ; 256 MiB - 256 GiB
+     (validate-int settings :disk "disk allocation" 256 1048576)])) ; 256 MiB - 1 TiB
 
 
 
