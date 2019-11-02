@@ -343,7 +343,8 @@
         decision (scheduler/should-assign-work?
                    @<scheduler>
                    agent-profile
-                   agent-id)]
+                   agent-id
+                   cluster-profile)]
     (when decision
       (log/info "Assigning job %s to agent %s"
                 (server/job-label gocd-job)
