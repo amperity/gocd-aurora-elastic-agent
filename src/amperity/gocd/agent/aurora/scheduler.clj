@@ -130,8 +130,10 @@
 (defn should-assign-work?
   "True if the scheduler should assign the given job which wants
   `agent-profile` to the agent identified."
-  [scheduler agent-profile agent-id]
-  (if-let [resources (get-in scheduler [:agents agent-id :resources])]
+  [scheduler agent-profile agent-id cluster-profile]
+  (if-let [resources (and (= (:aurora_cluster cluster-profile)
+                             (:aurora-cluster (agent/parse-id agent-id)))
+                          (get-in scheduler [:agents agent-id :resources]))]
     ;; Determine if job requirements are satisfied by the agent.
     (agent/resource-satisfied?
       (agent/profile->resources agent-profile)
@@ -182,7 +184,11 @@
                              (when (and (= :running (:state agent-state))
                                         (= gocd-environment (:environment agent-state))
                                         (agent/idle? agent-state 75)
-                                        (agent/resource-satisfied? job-resources (:resources agent-state)))
+                                        (should-assign-work?
+                                          scheduler
+                                          agent-profile
+                                          agent-id
+                                          cluster-profile))
                                agent-id)))
                          (:agents scheduler))]
     (cond
