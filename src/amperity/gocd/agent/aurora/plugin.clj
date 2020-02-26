@@ -178,6 +178,7 @@
         aurora-env (:aurora_env cluster-profile)]
     (view-response
       [:div
+       [:style "ol,ul,li { float: none; }"]
        [:h2 "Cluster Status"]
        [:h3 "Profile"]
        [:pre (pr-str cluster-profile)]
@@ -195,6 +196,7 @@
        (->>
          (:agents @<scheduler>)
          (filter (comp #{aurora-cluster} :aurora-cluster agent/parse-id key))
+         (sort-by :state)
          (map (fn render-agent
                 [[agent-id agent-state]]
                 [:div
