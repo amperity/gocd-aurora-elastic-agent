@@ -86,6 +86,7 @@
    task]
   (let [job-key (->job-key aurora-role aurora-env job-name)
         resources (->
+                    resources
                     (select-keys [:cpu :ram :disk])
                     (assoc :named_port "wrapper"))
         aurora-resources (into #{} (map entry->resource) resources)
