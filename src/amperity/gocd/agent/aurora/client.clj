@@ -52,6 +52,7 @@
     :cpu (doto (Resource.) (.setNumCpus v))
     :ram (doto (Resource.) (.setRamMb v))
     :disk (doto (Resource.) (.setDiskMb v))
+    :named_port (doto (Resource.) (.setNamedPort v))
     (throw (IllegalArgumentException.
              (str "Unknown resource key: " (pr-str k))))))
 
@@ -68,7 +69,10 @@
     [:ram (.getRamMb r)]
 
     (.isSetDiskMb r)
-    [:disk (.getDiskMb r)]))
+    [:disk (.getDiskMb r)]
+
+    (.isSetNamedPort r)
+    [:named_port (.getNamedPort r)]))
 
 
 (defn- ->job-config
@@ -81,7 +85,9 @@
    resources
    task]
   (let [job-key (->job-key aurora-role aurora-env job-name)
-        resources (select-keys resources [:cpu :ram :disk])
+        resources (->
+                    (select-keys [:cpu :ram :disk])
+                    (assoc :named_port "wrapper"))
         aurora-resources (into #{} (map entry->resource) resources)
         exec-resources (-> resources
                            (update :ram * 1024 1024)
