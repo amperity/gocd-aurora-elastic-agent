@@ -19,4 +19,4 @@
 1. Create a release on the [plugin's GitHub release
    page](https://github.com/amperity/gocd-aurora-elastic-agent/releases).
    Upload the jarfile you built in the previous step. It was created at
-   `target/plugin/gocd-aurora-elastic-agent-0.2.0-SNAPSHOT-plugin.jar`.
+   `target/plugin/gocd-aurora-elastic-agent-X.X.X-plugin.jar`.
