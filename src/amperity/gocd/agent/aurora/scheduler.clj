@@ -261,10 +261,9 @@
                             :agent-source-url source-url
                             :auto-register-hostname agent-name
                             :auto-register-environments
-                            (if-let [agent-environments
-                                     (not-empty (:environments agent-profile))]
-                              agent-environments
-                              (:gocd-environment request))
+                            (if (str/blank? (:environments agent-profile))
+                              (:gocd-environment request)
+                              (:environments agent-profile))
                             :auto-register-key (:gocd-register-key request)
                             :elastic-plugin-id u/plugin-id
                             :elastic-agent-id agent-id

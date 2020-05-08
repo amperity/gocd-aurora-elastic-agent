@@ -93,9 +93,9 @@
      (when-not (re-matches #"[a-z]+" (:agent_tag settings))
        {:key :agent_tag
         :message "Agent tag must consist of lowercase letters"})
-     (when-let [environments (not-empty (:environments settings))]
-       (when-not (re-matches #"[a-zA-Z0-9_\-]{1}[a-zA-Z0-9_\-.]*(,[a-zA-Z0-9_\-]{1}[a-zA-Z0-9_\-.]*)*"
-                             environments)
+     (when (not (str/blank? (:environments settings)))
+       (when-not (re-matches #"[a-zA-Z0-9_\-][a-zA-Z0-9_\-.]*(,[a-zA-Z0-9_\-][a-zA-Z0-9_\-.]*)*"
+                             (:environments settings))
          {:key :environments
           :message "Environments list must be a comma-separated list of environment names"}))
      (validate-float settings :cpu "cpu allocation" 0.1 32.0)
@@ -196,9 +196,9 @@
   [agent-id state agent-profile gocd-environment]
   {:agent-id agent-id
    :state state
-   :environments (if-let [agent-environments (not-empty (:environments agent-profile))]
-                   agent-environments
-                   gocd-environment)
+   :environments (if (str/blank? (:environments agent-profile))
+                   gocd-environment
+                   (:environments agent-profile))
    :resources (profile->resources agent-profile)
    :last-active (now)
    :events []})
