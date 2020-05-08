@@ -10,7 +10,11 @@
 
 (def profile-metadata
   "Schema for an elastic agent profile map."
-  [{:key :agent_tag
+  [{:key :id
+    :metadata {:required true, :secure false}}
+   {:key :agent_tag
+    :metadata {:required true, :secure false}}
+   {:key :environments
     :metadata {:required true, :secure false}}
    ;; Agent Resources
    {:key :cpu
@@ -27,7 +31,9 @@
 (defn migrate-settings
   "Migrate an existing map of profile settings to the latest representation."
   [settings]
-  {:agent_tag (:agent_tag settings)
+  {:id (:id settings)
+   :agent_tag (:agent_tag settings)
+   :environments (:environments settings)
    :cpu (:cpu settings)
    :ram (:ram settings)
    :disk (:disk settings)
@@ -87,6 +93,11 @@
      (when-not (re-matches #"[a-z]+" (:agent_tag settings))
        {:key :agent_tag
         :message "Agent tag must consist of lowercase letters"})
+     (when-let [environments (not-empty (:environments settings))]
+       (when-not (re-matches #"[a-zA-Z0-9_\-]{1}[a-zA-Z0-9_\-.]*(,[a-zA-Z0-9_\-]{1}[a-zA-Z0-9_\-.]*)*"
+                             environments)
+         {:key :environments
+          :message "Environments list must be a comma-separated list of environment names"}))
      (validate-float settings :cpu "cpu allocation" 0.1 32.0)
      (validate-int settings :ram "memory allocation" 256 262144) ; 256 MiB - 256 GiB
      (validate-int settings :disk "disk allocation" 256 1048576)])) ; 256 MiB - 1 TiB
@@ -162,7 +173,7 @@
 
 (comment
   {:state :running
-   :environment "build"
+   :environments "build,test"
    :resources {:cpu 1.0, :ram 1024, :disk 1024}
    :launched-for job-id
    :last-active #inst "2019-08-10T14:16:00Z"
@@ -185,7 +196,9 @@
   [agent-id state agent-profile gocd-environment]
   {:agent-id agent-id
    :state state
-   :environment gocd-environment
+   :environments (if-let [agent-environments (not-empty (:environments agent-profile))]
+                   agent-environments
+                   gocd-environment)
    :resources (profile->resources agent-profile)
    :last-active (now)
    :events []})

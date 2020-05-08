@@ -172,6 +172,7 @@
                       (filter (comp #{:launching :pending :starting} :state))
                       (remove #(agent/stale? % 600))
                       (first))
+        agent-environments (:environments agent-profile)
         ;; TODO: this logic results in slower ramp time than desired when lots
         ;; of jobs want new agents, but there's a single free agent that can
         ;; take those jobs. The existing capacity prevents new agents from
@@ -182,7 +183,8 @@
                            (fn candidate?
                              [[agent-id agent-state]]
                              (when (and (= :running (:state agent-state))
-                                        (= gocd-environment (:environment agent-state))
+                                        (some #(= gocd-environment %)
+                                              (str/split (:environments agent-state) #","))
                                         (agent/idle? agent-state 75)
                                         (should-assign-work?
                                           scheduler
@@ -211,6 +213,16 @@
       (log/info "Not launching new agent because cluster %s is at capacity (%s)"
                 (:aurora_cluster cluster-profile)
                 (pr-str cluster-quota))
+
+      ;; Don't launch an agent if the profile specifies environments and the
+      ;; job isn't in one of those environments.
+      (and (not (str/blank? agent-environments))
+           (not (some #(= gocd-environment %) (str/split agent-environments #","))))
+      (log/info "Not launching new agent because environment %s is not allowed for agent profile %s (allowed: %s)"
+                gocd-environment
+                (:id agent-profile)
+                agent-environments)
+
 
       :else true)))
 
@@ -248,7 +260,11 @@
                            {:server-url (:server_api_url cluster-profile)
                             :agent-source-url source-url
                             :auto-register-hostname agent-name
-                            :auto-register-environment (:gocd-environment request)
+                            :auto-register-environments
+                            (if-let [agent-environments
+                                     (not-empty (:environments agent-profile))]
+                              agent-environments
+                              (:gocd-environment request))
                             :auto-register-key (:gocd-register-key request)
                             :elastic-plugin-id u/plugin-id
                             :elastic-agent-id agent-id

@@ -208,7 +208,7 @@
                    (str (:last-active agent-state))
                    (when (:idle? agent-state)
                      " (idle)")]
-                  [:li [:strong "environment:"] " " (:environment agent-state :???)]
+                  [:li [:strong "environments:"] " " (:environments agent-state :???)]
                   [:li [:strong "resources:"]
                    [:ul
                     (for [[k v] (:resources agent-state)]
@@ -332,7 +332,7 @@
 ;; When there are multiple agents available to run a job, the server will
 ;; ask the plugin if jobs should be assigned to a particular agent. The
 ;; request will contain information about the agent, the job configuration
-;; and the environment that the agent belongs to. This allows plugin to
+;; and the environments that the agent belongs to. This allows plugin to
 ;; decide if proposed agent is suitable to schedule a job on it. For
 ;; example, plugin can check if flavor or region of VM is suitable.
 (defmethod handle-request "cd.go.elastic-agent.should-assign-work"
