@@ -5,6 +5,17 @@
   <span class="form_error" ng-show="GOINPUTNAME[agent_tag].$error.server">{{GOINPUTNAME[agent_tag].$error.server}}</span>
 </div>
 
+<div class="form_item_block">
+  <label>Environments:</label>
+  <p>
+    (Optional) Comma-separated list of environments to launch the agent with.
+    If set, will not allow jobs to launch with this agent profile unless they're
+    in one of the specified environments.
+  </p>
+  <input type="text" ng-model="environments" ng-required="true" placeholder="dev,stage,prod"/>
+  <span class="form_error" ng-show="GOINPUTNAME[environments].$error.server">{{GOINPUTNAME[environments].$error.server}}</span>
+</div>
+
 <fieldset>
   <legend style="font-size: 18px; margin-top: 15px;">Agent Resources</legend>
   <p>Job resources to request for each agent of this type.</p>

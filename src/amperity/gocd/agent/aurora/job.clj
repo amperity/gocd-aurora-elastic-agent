@@ -22,11 +22,11 @@
         (throw (IllegalArgumentException.
                  (str "Agent job settings must include a " (name k)
                       " string, got: " (pr-str v)))))))
-  (when-let [environment (:auto-register-environment params)]
-    (when-not (string? environment)
+  (when-let [environments (:auto-register-environments params)]
+    (when-not (string? environments)
       (throw (IllegalArgumentException.
-               (str "Agent job setting auto-register-environment must be a"
-                    " string, got: " (pr-str environment)))))))
+               (str "Agent job setting auto-register-environments must be a"
+                    " string, got: " (pr-str environments)))))))
 
 
 
@@ -89,8 +89,8 @@
         (clean autoregister-properties-path)
         (autoregister-property "agent.auto.register.key" (:auto-register-key params))
         (autoregister-property "agent.auto.register.hostname" (:auto-register-hostname params))
-        (when-let [environment (:auto-register-environment params)]
-          (autoregister-property "agent.auto.register.environments" environment))
+        (when-let [environments (:auto-register-environments params)]
+          (autoregister-property "agent.auto.register.environments" environments))
         (autoregister-property "agent.auto.register.elasticAgent.pluginId" (:elastic-plugin-id params))
         (autoregister-property "agent.auto.register.elasticAgent.agentId" (:elastic-agent-id params))
         (str "base64 -d <<<'" (u/b64-encode-str logback-xml) "' > go-agent/config/agent-bootstrapper-logback.xml")
