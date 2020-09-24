@@ -98,19 +98,13 @@
         "cp go-agent/config/agent-bootstrapper-logback.xml go-agent/config/agent-logback.xml"))))
 
 
-(defn- init-proc
-  "Constructs a process definition to perform custom initialization on the
-  agent."
-  [init-script]
-  (when-not (str/blank? init-script)
-    (->proc "initialize" init-script)))
-
-
 (defn- run-proc
   "Constructs a new Aurora process definition to run the gocd agent."
-  []
+  [init-script]
   (->proc
     "run"
+    (when-not (str/blank? init-script)
+      init-script)
     "export PATH=\"$HOME/bin:$PATH\""
     "go-agent/bin/go-agent console"))
 
@@ -124,8 +118,7 @@
                 (remove nil?)
                 [(install-proc (:agent-source-url settings))
                  (configure-proc settings)
-                 (init-proc (:init-script settings))
-                 (run-proc)])
+                 (run-proc (:init-script settings))])
         order (into [] (comp (remove :final) (map :name)) procs)]
     {:name job-name
      :finalization_wait 30
