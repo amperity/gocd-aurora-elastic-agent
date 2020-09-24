@@ -6,6 +6,12 @@ log follows the conventions of [keepachangelog.com](http://keepachangelog.com/).
 
 ## [Unreleased]
 
+## [0.2.1] - 2020-09-24
+### Changed
+- Run the `init-script` in the same process as the agent to make it easier to
+  e.g. source environment variables.
+  [#28](https://github.com/amperity/gocd-aurora-elastic-agent/pull/28)
+
 ## [0.2.0] - 2020-05-08
 ### Added
 - Optionally allow specifying agent environments
@@ -34,6 +40,7 @@ log follows the conventions of [keepachangelog.com](http://keepachangelog.com/).
 - Initial plugin release.
 
 [Unreleased]: https://github.com/amperity/gocd-aurora-elastic-agent/compare/v0.2.0...HEAD
+[0.2.1]: https://github.com/amperity/gocd-aurora-elastic-agent/releases/tag/v0.2.1
 [0.2.0]: https://github.com/amperity/gocd-aurora-elastic-agent/releases/tag/v0.2.0
 [0.1.1]: https://github.com/amperity/gocd-aurora-elastic-agent/releases/tag/v0.1.1
 [0.1.0]: https://github.com/amperity/gocd-aurora-elastic-agent/releases/tag/v0.1.0
