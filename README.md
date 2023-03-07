@@ -1,6 +1,11 @@
 gocd-aurora-elastic-agent
 =========================
 
+⚠️  **This project is no longer in active development** and will be archived soon.
+Apache Aurora itself has been moved to the Apache Attic and is unmaintained.
+Please look into using one of the other [GoCD elastic agent plugins](https://www.gocd.org/plugins/#elastic-agents)
+supported by the GoCD community.
+
 <img height="80" width="80" align="right" src="resources/amperity/gocd/agent/aurora/logo.svg"/>
 
 [![CircleCI](https://circleci.com/gh/amperity/gocd-aurora-elastic-agent.svg?style=shield&circle-token=69e958626f163693a8b24fe5a76d5a3795157257)](https://circleci.com/gh/amperity/gocd-aurora-elastic-agent)
